@@ -7,20 +7,10 @@
       "layers" : [
         {
           "fill" : {
-            "solid" : "srgb:0.11999,0.43825,0.86791,1.00000"
+            "solid" : "srgb:0.09645,0.37295,0.73787,1.00000"
           },
           "image-name" : "minimal-icon.png",
           "name" : "minimal-icon"
-        },
-        {
-          "blend-mode" : "normal",
-          "fill" : {
-            "solid" : "srgb:0.00000,0.56763,1.00000,1.00000"
-          },
-          "glass" : true,
-          "hidden" : true,
-          "image-name" : "minimalistic mouse trap.png",
-          "name" : "minimalistic mouse trap"
         }
       ],
       "shadow" : {
