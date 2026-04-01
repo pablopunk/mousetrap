@@ -12,18 +12,19 @@ STAGING_APP_DIR="$BUILD_DIR/$APP_NAME.app"
 INSTALL_DIR="${INSTALL_DIR:-/Applications}"
 INSTALLED_APP_DIR="$INSTALL_DIR/$APP_NAME.app"
 EXECUTABLE="$BUILD_DIR/$APP_NAME"
+ICON_ASSETS_DIR="$BUILD_DIR/icon-assets"
+APP_ICON_NAME="AppIcon"
 
 swift build -c "$CONFIGURATION"
+"$ROOT/scripts/generate-icons.sh" "$ICON_ASSETS_DIR"
 
 rm -rf "$STAGING_APP_DIR"
 mkdir -p "$STAGING_APP_DIR/Contents/MacOS"
 mkdir -p "$STAGING_APP_DIR/Contents/Resources"
 
 cp "$EXECUTABLE" "$STAGING_APP_DIR/Contents/MacOS/$APP_NAME"
-
-if [[ -f "$ROOT/assets/AppIcon.icns" ]]; then
-  cp "$ROOT/assets/AppIcon.icns" "$STAGING_APP_DIR/Contents/Resources/AppIcon.icns"
-fi
+cp "$ICON_ASSETS_DIR/Assets.car" "$STAGING_APP_DIR/Contents/Resources/Assets.car"
+cp "$ICON_ASSETS_DIR/$APP_ICON_NAME.icns" "$STAGING_APP_DIR/Contents/Resources/$APP_ICON_NAME.icns"
 
 if [[ -f "$ROOT/assets/minimal-icon.png" ]]; then
   cp "$ROOT/assets/minimal-icon.png" "$STAGING_APP_DIR/Contents/Resources/minimal-icon.png"
@@ -41,7 +42,9 @@ cat > "$STAGING_APP_DIR/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleIconFile</key>
-  <string>AppIcon</string>
+  <string>$APP_ICON_NAME</string>
+  <key>CFBundleIconName</key>
+  <string>$APP_ICON_NAME</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>

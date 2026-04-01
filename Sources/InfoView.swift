@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 private extension Bundle {
     var buildNumber: String? {
@@ -13,9 +14,13 @@ struct InfoView: View {
     var body: some View {
         VStack(spacing: 14) {
             HStack(spacing: 12) {
-                Image(systemName: "cursorarrow.click")
-                    .font(.system(size: 28, weight: .thin))
+                Image(nsImage: .menuBarIcon)
+                    .renderingMode(.template)
+                    .resizable()
+                    .interpolation(.high)
                     .foregroundStyle(.tint)
+                    .frame(width: 28, height: 28)
+                    .padding(6)
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {

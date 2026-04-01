@@ -2,35 +2,19 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+APP_ICON_NAME="AppIcon"
+ICON_SOURCE="$ROOT/assets/${APP_ICON_NAME}.icon"
 MENU_BAR_ICON="$ROOT/assets/minimal-icon.png"
-APP_ICON_OUT="$ROOT/assets/AppIcon.icns"
-ICONSET_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mousetrap-iconset.XXXXXX").iconset"
+OUTPUT_DIR="${1:-$ROOT/.build/generated-icons}"
+PARTIAL_PLIST="$OUTPUT_DIR/${APP_ICON_NAME}-partial-info.plist"
 
-cleanup() {
-  rm -rf "$ICONSET_DIR"
-}
-trap cleanup EXIT
-
-find_compose_icon_source() {
-  local candidate
-
-  while IFS= read -r candidate; do
-    if [[ -f "$candidate" ]]; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done < <(find "$ROOT/assets" -type f \( -path '*/Assets/*.png' -o -path '*/Assets/*.jpg' -o -path '*/Assets/*.jpeg' \) | sort)
-
-  return 1
+log() {
+  printf '%s\n' "$*"
 }
 
-APP_ICON_SRC="${1:-}"
-if [[ -z "$APP_ICON_SRC" ]]; then
-  if ! APP_ICON_SRC="$(find_compose_icon_source)"; then
-    echo "Could not find an Icon Composer source image under assets/" >&2
-    echo "Expected something like assets/*.icon/Assets/*.png" >&2
-    exit 1
-  fi
+if [[ ! -d "$ICON_SOURCE" ]]; then
+  echo "Icon Composer source not found: $ICON_SOURCE" >&2
+  exit 1
 fi
 
 if [[ ! -f "$MENU_BAR_ICON" ]]; then
@@ -38,31 +22,37 @@ if [[ ! -f "$MENU_BAR_ICON" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$APP_ICON_SRC" ]]; then
-  echo "App icon source not found: $APP_ICON_SRC" >&2
+mkdir -p "$OUTPUT_DIR"
+rm -f "$OUTPUT_DIR/Assets.car" "$OUTPUT_DIR/${APP_ICON_NAME}.icns" "$PARTIAL_PLIST"
+
+log "Icon Composer source: $ICON_SOURCE"
+log "Generating icon assets in: $OUTPUT_DIR"
+
+xcrun actool \
+  "$ICON_SOURCE" \
+  --compile "$OUTPUT_DIR" \
+  --app-icon "$APP_ICON_NAME" \
+  --platform macosx \
+  --minimum-deployment-target 14.0 \
+  --output-partial-info-plist "$PARTIAL_PLIST" \
+  --standalone-icon-behavior default \
+  --errors \
+  --warnings \
+  --notices >/dev/null
+
+if [[ ! -f "$OUTPUT_DIR/Assets.car" ]]; then
+  echo "actool did not generate Assets.car" >&2
   exit 1
 fi
 
-mkdir -p "$ICONSET_DIR"
-mkdir -p "$(dirname "$APP_ICON_OUT")"
+if [[ ! -f "$OUTPUT_DIR/${APP_ICON_NAME}.icns" ]]; then
+  echo "actool did not generate ${APP_ICON_NAME}.icns" >&2
+  exit 1
+fi
 
-echo "Menu bar icon: $MENU_BAR_ICON"
-echo "App icon source: $APP_ICON_SRC"
-echo "Generating: $APP_ICON_OUT"
-
-sips -z 16 16     "$APP_ICON_SRC" --out "$ICONSET_DIR/icon_16x16.png" >/dev/null
-sips -z 32 32     "$APP_ICON_SRC" --out "$ICONSET_DIR/icon_16x16@2x.png" >/dev/null
-sips -z 32 32     "$APP_ICON_SRC" --out "$ICONSET_DIR/icon_32x32.png" >/dev/null
-sips -z 64 64     "$APP_ICON_SRC" --out "$ICONSET_DIR/icon_32x32@2x.png" >/dev/null
-sips -z 128 128   "$APP_ICON_SRC" --out "$ICONSET_DIR/icon_128x128.png" >/dev/null
-sips -z 256 256   "$APP_ICON_SRC" --out "$ICONSET_DIR/icon_128x128@2x.png" >/dev/null
-sips -z 256 256   "$APP_ICON_SRC" --out "$ICONSET_DIR/icon_256x256.png" >/dev/null
-sips -z 512 512   "$APP_ICON_SRC" --out "$ICONSET_DIR/icon_256x256@2x.png" >/dev/null
-sips -z 512 512   "$APP_ICON_SRC" --out "$ICONSET_DIR/icon_512x512.png" >/dev/null
-cp "$APP_ICON_SRC" "$ICONSET_DIR/icon_512x512@2x.png"
-
-iconutil -c icns "$ICONSET_DIR" -o "$APP_ICON_OUT"
-
-echo "Done. Build uses:"
-echo "- Menu bar icon: $MENU_BAR_ICON"
-echo "- App icon: $APP_ICON_OUT"
+log "Done. Generated:"
+log "- $OUTPUT_DIR/Assets.car"
+log "- $OUTPUT_DIR/${APP_ICON_NAME}.icns"
+log "- $PARTIAL_PLIST"
+log "Menu bar icon remains:"
+log "- $MENU_BAR_ICON"
