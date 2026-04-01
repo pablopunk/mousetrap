@@ -5,8 +5,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 CONFIGURATION="${CONFIGURATION:-debug}"
-APP_NAME="Mousetrap"
-BUNDLE_ID="com.pablopunk.mousetrap"
+APP_NAME="${APP_NAME:-Mousetrap}"
+BUNDLE_ID="${BUNDLE_ID:-com.pablopunk.mousetrap}"
+EXECUTABLE_NAME="${EXECUTABLE_NAME:-Mousetrap}"
 VERSION_FILE="$ROOT/VERSION"
 APP_VERSION="${APP_VERSION:-$(tr -d '[:space:]' < "$VERSION_FILE")}" 
 BUILD_NUMBER="${BUILD_NUMBER:-$APP_VERSION}"
@@ -15,7 +16,7 @@ STAGING_APP_DIR="$BUILD_DIR/$APP_NAME.app"
 INSTALL_DIR="${INSTALL_DIR:-/Applications}"
 INSTALLED_APP_DIR="$INSTALL_DIR/$APP_NAME.app"
 INSTALL_APP="${INSTALL_APP:-1}"
-EXECUTABLE="$BUILD_DIR/$APP_NAME"
+EXECUTABLE="$BUILD_DIR/$EXECUTABLE_NAME"
 APP_ICON_NAME="AppIcon"
 APP_ICON_FILE="$ROOT/assets/${APP_ICON_NAME}.icns"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
@@ -37,7 +38,7 @@ rm -rf "$STAGING_APP_DIR"
 mkdir -p "$STAGING_APP_DIR/Contents/MacOS"
 mkdir -p "$STAGING_APP_DIR/Contents/Resources"
 
-cp "$EXECUTABLE" "$STAGING_APP_DIR/Contents/MacOS/$APP_NAME"
+cp "$EXECUTABLE" "$STAGING_APP_DIR/Contents/MacOS/$EXECUTABLE_NAME"
 cp "$APP_ICON_FILE" "$STAGING_APP_DIR/Contents/Resources/$APP_ICON_NAME.icns"
 
 if [[ -f "$ROOT/assets/minimal-icon.png" ]]; then
@@ -54,7 +55,7 @@ cat > "$STAGING_APP_DIR/Contents/Info.plist" <<PLIST
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>$APP_NAME</string>
+  <string>$EXECUTABLE_NAME</string>
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleIconFile</key>
