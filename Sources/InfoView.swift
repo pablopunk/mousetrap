@@ -2,14 +2,31 @@ import SwiftUI
 import AppKit
 
 private extension Bundle {
-    var buildNumber: String? {
-        infoDictionary?["CFBundleVersion"] as? String
+    var appVersion: String? {
+        if let bundledVersion = url(forResource: "VERSION", withExtension: nil)
+            .flatMap({ try? String(contentsOf: $0) })
+            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }),
+           !bundledVersion.isEmpty {
+            return bundledVersion
+        }
+
+        if let shortVersion = infoDictionary?["CFBundleShortVersionString"] as? String,
+           !shortVersion.isEmpty {
+            return shortVersion
+        }
+
+        if let buildVersion = infoDictionary?["CFBundleVersion"] as? String,
+           !buildVersion.isEmpty {
+            return buildVersion
+        }
+
+        return nil
     }
 }
 
 struct InfoView: View {
     let onQuit: () -> Void
-    private let version = Bundle.main.buildNumber
+    private let version = Bundle.main.appVersion
 
     var body: some View {
         VStack(spacing: 14) {
