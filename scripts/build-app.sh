@@ -16,8 +16,8 @@ INSTALL_DIR="${INSTALL_DIR:-/Applications}"
 INSTALLED_APP_DIR="$INSTALL_DIR/$APP_NAME.app"
 INSTALL_APP="${INSTALL_APP:-1}"
 EXECUTABLE="$BUILD_DIR/$APP_NAME"
-ICON_ASSETS_DIR="$BUILD_DIR/icon-assets"
 APP_ICON_NAME="AppIcon"
+APP_ICON_FILE="$ROOT/assets/${APP_ICON_NAME}.icns"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
 CODESIGN_OPTIONS=(--force --deep --sign "$CODESIGN_IDENTITY")
 
@@ -26,15 +26,19 @@ if [[ "$CODESIGN_IDENTITY" != "-" ]]; then
 fi
 
 swift build -c "$CONFIGURATION"
-"$ROOT/scripts/generate-icons.sh" "$ICON_ASSETS_DIR"
+
+if [[ ! -f "$APP_ICON_FILE" ]]; then
+  echo "App icon not found: $APP_ICON_FILE" >&2
+  echo "Generate it manually with: ./scripts/generate-icons.sh" >&2
+  exit 1
+fi
 
 rm -rf "$STAGING_APP_DIR"
 mkdir -p "$STAGING_APP_DIR/Contents/MacOS"
 mkdir -p "$STAGING_APP_DIR/Contents/Resources"
 
 cp "$EXECUTABLE" "$STAGING_APP_DIR/Contents/MacOS/$APP_NAME"
-cp "$ICON_ASSETS_DIR/Assets.car" "$STAGING_APP_DIR/Contents/Resources/Assets.car"
-cp "$ICON_ASSETS_DIR/$APP_ICON_NAME.icns" "$STAGING_APP_DIR/Contents/Resources/$APP_ICON_NAME.icns"
+cp "$APP_ICON_FILE" "$STAGING_APP_DIR/Contents/Resources/$APP_ICON_NAME.icns"
 
 if [[ -f "$ROOT/assets/minimal-icon.png" ]]; then
   cp "$ROOT/assets/minimal-icon.png" "$STAGING_APP_DIR/Contents/Resources/minimal-icon.png"

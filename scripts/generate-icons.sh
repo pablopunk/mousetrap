@@ -4,9 +4,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_ICON_NAME="AppIcon"
 ICON_SOURCE="$ROOT/assets/${APP_ICON_NAME}.icon"
-MENU_BAR_ICON="$ROOT/assets/minimal-icon.png"
-OUTPUT_DIR="${1:-$ROOT/.build/generated-icons}"
+OUTPUT_ICNS="${1:-$ROOT/assets/${APP_ICON_NAME}.icns}"
+OUTPUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mousetrap-icon-assets.XXXXXX")"
 PARTIAL_PLIST="$OUTPUT_DIR/${APP_ICON_NAME}-partial-info.plist"
+
+cleanup() {
+  rm -rf "$OUTPUT_DIR"
+}
+trap cleanup EXIT
 
 log() {
   printf '%s\n' "$*"
@@ -17,17 +22,11 @@ if [[ ! -d "$ICON_SOURCE" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$MENU_BAR_ICON" ]]; then
-  echo "Menu bar icon not found: $MENU_BAR_ICON" >&2
-  exit 1
-fi
-
-mkdir -p "$OUTPUT_DIR"
-rm -f "$OUTPUT_DIR/Assets.car" "$OUTPUT_DIR/${APP_ICON_NAME}.icns" "$PARTIAL_PLIST"
+mkdir -p "$(dirname "$OUTPUT_ICNS")"
+rm -f "$OUTPUT_ICNS"
 
 log "Icon Composer source: $ICON_SOURCE"
-log "Generating icon assets in: $OUTPUT_DIR"
-log "Running actool with full output enabled for debugging"
+log "Generating app icon: $OUTPUT_ICNS"
 
 xcrun actool \
   "$ICON_SOURCE" \
@@ -41,19 +40,12 @@ xcrun actool \
   --warnings \
   --notices
 
-if [[ ! -f "$OUTPUT_DIR/Assets.car" ]]; then
-  echo "actool did not generate Assets.car" >&2
-  exit 1
-fi
-
 if [[ ! -f "$OUTPUT_DIR/${APP_ICON_NAME}.icns" ]]; then
   echo "actool did not generate ${APP_ICON_NAME}.icns" >&2
   exit 1
 fi
 
+cp "$OUTPUT_DIR/${APP_ICON_NAME}.icns" "$OUTPUT_ICNS"
+
 log "Done. Generated:"
-log "- $OUTPUT_DIR/Assets.car"
-log "- $OUTPUT_DIR/${APP_ICON_NAME}.icns"
-log "- $PARTIAL_PLIST"
-log "Menu bar icon remains:"
-log "- $MENU_BAR_ICON"
+log "- $OUTPUT_ICNS"
