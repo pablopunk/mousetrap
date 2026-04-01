@@ -41,7 +41,7 @@ make release VERSION=0.1.0
 
 Other apps I've tried to do this, but haven't worked for me:
 
-- [Mouseless](https://mouseless.click/). Probably my favorite one, I was subscribed for a frew months. Issues: not free, not open source. I'm happy to pay but it just adds friction for new setups. Also the config was quite complex. I did achieve a good enough workflow with it but I've never liked it as much as I like Mousetrap now now.
+- [Mouseless](https://mouseless.click/). Probably my favorite one, I was subscribed for a few months. Issues: not free, not open source. I'm happy to pay but it just adds friction for new setups. Also the config was quite complex. I did achieve a good enough workflow with it but I've never liked it as much as I like Mousetrap now now.
 - [NoMouse](https://github.com/madanlalit/no-mouse). How on earth is it not possible to edit the default shortcut? Especially it being something so popular, for example, on code editors. Not to mention neither of the other settings can be customized. I still want to mention that it's a very nice app if you don't care about those.
 - [Shortcat](https://shortcat.app/). Lovely idea! I was really excited to use it, and I did for a while. But it does not match as many items on screen as I would like it to and found myself still using the mouse a ton.
 - [Superkey](https://superkey.app/). Just tlike Shortcat, but paid and close source.
