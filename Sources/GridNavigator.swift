@@ -56,6 +56,9 @@ struct GridState {
 }
 
 final class GridNavigator {
+    private let refinementExpansionRatio: CGFloat = 0.05
+    private let finalClickExpansionRatio: CGFloat = 0.05
+
     private var rootLayout: GridLayout
     private var refinementLayout: GridLayout
     private var finalClickLayout: GridLayout
@@ -81,17 +84,21 @@ final class GridNavigator {
 
     @discardableResult
     func select(_ key: Character) -> Bool {
-        guard let nextRect = state.layout.rect(for: key, in: state.currentRect) else {
+        guard let selectedRect = state.layout.rect(for: key, in: state.currentRect) else {
             return false
         }
 
         var history = state.history
         history.append(state.currentRect)
+
+        let nextDepth = history.count
+        let nextRect = expandedRectIfNeeded(selectedRect, forDepth: nextDepth)
+
         state = GridState(
             screenRect: state.screenRect,
             currentRect: nextRect,
             history: history,
-            layout: layout(forDepth: history.count)
+            layout: layout(forDepth: nextDepth)
         )
         return true
     }
@@ -118,5 +125,27 @@ final class GridNavigator {
         case 1: refinementLayout
         default: finalClickLayout
         }
+    }
+
+    private func expandedRectIfNeeded(_ rect: CGRect, forDepth depth: Int) -> CGRect {
+        let expansionRatio: CGFloat
+
+        switch depth {
+        case 1:
+            expansionRatio = refinementExpansionRatio
+        case 2:
+            expansionRatio = finalClickExpansionRatio
+        default:
+            expansionRatio = 0
+        }
+
+        guard expansionRatio > 0 else { return rect }
+
+        let expanded = rect.insetBy(
+            dx: -rect.width * expansionRatio,
+            dy: -rect.height * expansionRatio
+        )
+
+        return expanded.intersection(state.screenRect)
     }
 }

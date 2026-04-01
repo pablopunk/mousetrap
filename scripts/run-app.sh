@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-INSTALL_DIR="${INSTALL_DIR:-$HOME/Applications}"
+INSTALL_DIR="${INSTALL_DIR:-/Applications}"
 APP_PATH="$INSTALL_DIR/Mousetrap.app"
 
 pkill -x Mousetrap || true

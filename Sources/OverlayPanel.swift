@@ -20,8 +20,12 @@ final class OverlayPanel: NSPanel {
         switch event.keyCode {
         case 53: return .escape
         case 51: return .delete
-        case 36: return .returnKey
+        case 36, 76: return event.modifierFlags.contains(.shift) ? .shiftReturnKey : .returnKey
         case 49: return .space
+        case 123: return .leftArrow
+        case 124: return .rightArrow
+        case 125: return .downArrow
+        case 126: return .upArrow
         default:
             break
         }

@@ -35,6 +35,7 @@ final class OverlayView: NSView {
     private func drawKeys(in rect: CGRect) {
         let rows = state.layout.rows
         let rowHeight = rect.height / CGFloat(rows.count)
+        let cellInset: CGFloat = state.history.isEmpty ? 4 : 0
 
         for (rowIndex, row) in rows.enumerated() {
             let cellWidth = rect.width / CGFloat(row.count)
@@ -45,7 +46,7 @@ final class OverlayView: NSView {
                     y: rect.maxY - CGFloat(rowIndex + 1) * rowHeight,
                     width: cellWidth,
                     height: rowHeight
-                ).insetBy(dx: 4, dy: 4)
+                ).insetBy(dx: cellInset, dy: cellInset)
 
                 let rounded = NSBezierPath(roundedRect: cell, xRadius: 8, yRadius: 8)
                 NSColor.white.withAlphaComponent(0.08).setFill()

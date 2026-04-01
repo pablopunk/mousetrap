@@ -1,76 +1,52 @@
 import AppKit
+import Combine
+import KeyboardShortcuts
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    private var statusItem: NSStatusItem!
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private static let unsafeStateTimeout: TimeInterval = 10
+
     private let overlayController = OverlayWindowController()
     private let screenResolver = FocusedScreenResolver()
     private let permissionManager = PermissionManager()
+    private let settings = SettingsStore.shared
+    private var settingsCancellables = Set<AnyCancellable>()
     private var previouslyFocusedApp: NSRunningApplication?
     private let keyboardLayoutResolver = KeyboardLayoutResolver()
+    private let freeMouseKeyboardInterceptor = KeyboardInterceptor()
+    private let freeMouseIndicatorController = FreeMouseIndicatorController()
     private lazy var navigator = GridNavigator()
-    private lazy var hotKeyController = GlobalHotKeyController { [weak self] in
-        self?.toggleOverlay()
-    }
+    private var unsafeStateTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         overlayController.onKey = { [weak self] key in
             self?.handleInterceptedKey(key)
         }
-        setupMenuBar()
-        _ = hotKeyController
+        freeMouseKeyboardInterceptor.onKey = { [weak self] key in
+            self?.handleFreeMouseKey(key)
+        }
+
+        KeyboardShortcuts.onKeyDown(for: .activateMousetrap) { [weak self] in
+            self?.toggleOverlay()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        cancelUnsafeStateTimeout()
     }
 
-    private func setupMenuBar() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "cursorarrow.click", accessibilityDescription: "Mousetrap")
-        statusItem.button?.image?.isTemplate = true
-        statusItem.button?.title = ""
-        statusItem.button?.toolTip = "Mousetrap"
-
-        let menu = NSMenu()
-        menu.delegate = self
-        statusItem.menu = menu
-        rebuildMenu()
-    }
-
-    func menuWillOpen(_ menu: NSMenu) {
-        rebuildMenu()
-    }
-
-    private func rebuildMenu() {
-        guard let menu = statusItem.menu else { return }
-        menu.removeAllItems()
-
-        if !permissionManager.hasAccessibilityPermission {
-            let item = NSMenuItem(title: "Open Accessibility Permissions…", action: #selector(openAccessibilityPermissions), keyEquivalent: "")
-            item.attributedTitle = NSAttributedString(
-                string: "Open Accessibility Permissions…",
-                attributes: [.foregroundColor: NSColor.systemOrange]
-            )
-            menu.addItem(item)
-            menu.addItem(.separator())
-        }
-
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
-    }
-
-    @objc private func quit() {
-        NSApp.terminate(nil)
-    }
-
-    @objc private func openAccessibilityPermissions() {
-        permissionManager.openAccessibilitySettings()
+    private var isInUnsafeState: Bool {
+        overlayController.isVisible || freeMouseKeyboardInterceptor.isActive
     }
 
     private func toggleOverlay() {
-        if overlayController.isVisible {
+        if freeMouseKeyboardInterceptor.isActive {
+            deactivateFreeMouseMode()
+        } else if overlayController.isVisible {
             deactivateOverlay()
         } else {
             activateOverlay()
+            noteUnsafeActivity()
         }
     }
 
@@ -92,16 +68,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         overlayController.show(on: screen, state: navigator.state)
     }
 
-    private func deactivateOverlay() {
+    private func deactivateOverlay(restoreFocus: Bool = true) {
         overlayController.hide()
-        if let previouslyFocusedApp {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previouslyFocusedApp.activate()
+
+        if !isInUnsafeState {
+            cancelUnsafeStateTimeout()
+        }
+
+        guard restoreFocus, let previouslyFocusedApp else {
+            if !isInUnsafeState {
+                self.previouslyFocusedApp = nil
             }
+            return
+        }
+
+        self.previouslyFocusedApp = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            previouslyFocusedApp.activate()
         }
     }
 
     private func handleInterceptedKey(_ key: InterceptedKey) {
+        noteUnsafeActivity()
+
         switch key {
         case .escape:
             deactivateOverlay()
@@ -111,9 +100,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .returnKey:
             MouseController.leftClick()
             deactivateOverlay()
+        case .shiftReturnKey:
+            MouseController.rightClick()
+            deactivateOverlay()
         case .space:
             MouseController.leftClick()
             deactivateOverlay()
+        case .upArrow, .downArrow, .leftArrow, .rightArrow:
+            startFreeMouseMode(withInitialMove: key)
         case .character(let character):
             let shouldClick = navigator.expectsClickOnNextSelection
             guard navigator.select(character) else { return }
@@ -128,8 +122,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    private func handleFreeMouseKey(_ key: InterceptedKey) {
+        noteUnsafeActivity()
+
+        switch key {
+        case .escape:
+            deactivateFreeMouseMode()
+        case .returnKey:
+            let clickPoint = MouseController.currentCursorPositionAppKit
+            deactivateFreeMouseMode()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                MouseController.leftClick(at: clickPoint)
+            }
+        case .shiftReturnKey:
+            let clickPoint = MouseController.currentCursorPositionAppKit
+            deactivateFreeMouseMode()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                MouseController.rightClick(at: clickPoint)
+            }
+        case .upArrow, .downArrow, .leftArrow, .rightArrow:
+            if MouseController.moveFreeCursor(direction: key) {
+                freeMouseIndicatorController.updatePosition(to: MouseController.currentCursorPositionAppKit)
+            }
+        case .character, .delete, .space:
+            break
+        }
+    }
+
+    private func startFreeMouseMode(withInitialMove key: InterceptedKey) {
+        freeMouseKeyboardInterceptor.start()
+        deactivateOverlay()
+        if MouseController.moveFreeCursor(direction: key) {
+            freeMouseIndicatorController.show(at: MouseController.currentCursorPositionAppKit)
+        }
+        noteUnsafeActivity()
+    }
+
+    private func deactivateFreeMouseMode() {
+        freeMouseKeyboardInterceptor.stop()
+        freeMouseIndicatorController.hide()
+
+        if !isInUnsafeState {
+            cancelUnsafeStateTimeout()
+        }
+    }
+
     private func updateOverlayAndCursor() {
         overlayController.update(state: navigator.state)
         MouseController.moveCursor(to: navigator.state.currentRect.center)
+    }
+
+    private func noteUnsafeActivity() {
+        guard isInUnsafeState else { return }
+
+        unsafeStateTimer?.invalidate()
+        unsafeStateTimer = Timer.scheduledTimer(withTimeInterval: Self.unsafeStateTimeout, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.resetToSafeStateDueToTimeout()
+            }
+        }
+    }
+
+    private func cancelUnsafeStateTimeout() {
+        unsafeStateTimer?.invalidate()
+        unsafeStateTimer = nil
+    }
+
+    private func resetToSafeStateDueToTimeout() {
+        guard isInUnsafeState else {
+            cancelUnsafeStateTimeout()
+            return
+        }
+
+        print("[Mousetrap] inactivity timeout reached, resetting to safe state")
+        deactivateFreeMouseMode()
+        deactivateOverlay()
     }
 }

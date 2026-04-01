@@ -1,0 +1,214 @@
+import SwiftUI
+import ServiceManagement
+import KeyboardShortcuts
+
+struct SectionHeaderView: View {
+    let title: String
+    let icon: String
+
+    var body: some View {
+        Label(title, systemImage: icon)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .textCase(.uppercase)
+    }
+}
+
+struct PreferenceToggleRow: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 13))
+                .foregroundStyle(.tint)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Toggle("", isOn: $isOn)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+        }
+        .frame(minHeight: 34)
+    }
+}
+
+struct LaunchAtLoginRow: View {
+    @State private var isEnabled = SMAppService.mainApp.status == .enabled
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "play.circle")
+                .font(.system(size: 13))
+                .foregroundStyle(.tint)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Launch at login")
+                    .font(.system(size: 13, weight: .medium))
+                Text("Start Mousetrap automatically")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
+
+            Toggle("", isOn: Binding(
+                get: { isEnabled },
+                set: { newValue in
+                    do {
+                        if newValue {
+                            try SMAppService.mainApp.register()
+                        } else {
+                            try SMAppService.mainApp.unregister()
+                        }
+                        isEnabled = (SMAppService.mainApp.status == .enabled)
+                    } catch {
+                        print("[Mousetrap] launch at login update failed: \(error)")
+                        isEnabled = (SMAppService.mainApp.status == .enabled)
+                    }
+                }
+            ))
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .labelsHidden()
+        }
+        .frame(minHeight: 34)
+    }
+}
+
+struct ShortcutRowView: View {
+    @AppStorage(SettingsKeys.freeMouseStep) private var freeMouseStep = SettingsKeys.defaultFreeMouseStep
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "command")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.tint)
+                    .frame(width: 18)
+
+                Text("Activate")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 58, alignment: .leading)
+
+                Spacer(minLength: 0)
+
+                KeyboardShortcuts.Recorder(for: .activateMousetrap)
+                    .frame(width: 130, alignment: .trailing)
+            }
+            .frame(minHeight: 34)
+
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Arrow keys enter free mouse mode. Press Enter to left-click or ⇧↩ for right-click.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: 10) {
+                        Text("Travel")
+                            .font(.system(size: 12, weight: .medium))
+                            .frame(width: 58, alignment: .leading)
+
+                        Slider(value: $freeMouseStep, in: 4...80, step: 2)
+                            .controlSize(.small)
+
+                        Text("\(Int(freeMouseStep))")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 24, alignment: .trailing)
+                    }
+                }
+            }
+            .padding(.top, 2)
+        }
+    }
+}
+
+struct MenuBarContentView: View {
+    @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
+    let permissionManager: PermissionManager
+    let onQuit: () -> Void
+    @State private var hasAccessibilityPermission = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                SectionHeaderView(title: "Preferences", icon: "slider.horizontal.3")
+                LaunchAtLoginRow()
+                PreferenceToggleRow(
+                    title: "Show menu bar icon",
+                    subtitle: "Reopen app to re-enable",
+                    icon: "menubar.rectangle",
+                    isOn: $showMenuBarIcon
+                )
+            }
+
+            Divider().opacity(0.5)
+
+            VStack(alignment: .leading, spacing: 8) {
+                SectionHeaderView(title: "Shortcuts", icon: "keyboard")
+
+                if hasAccessibilityPermission {
+                    ShortcutRowView()
+                } else {
+                    Button {
+                        permissionManager.openAccessibilitySettings()
+                    } label: {
+                        Label("Open Accessibility Permissions", systemImage: "exclamationmark.triangle")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            Divider().opacity(0.5)
+
+            Button(action: onQuit) {
+                HStack(spacing: 4) {
+                    Image(systemName: "power")
+                    Text("Quit")
+                    Text("⌘Q")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .frame(width: 320)
+        .onAppear {
+            refreshAccessibilityPermission()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshAccessibilityPermission()
+        }
+    }
+
+    private func refreshAccessibilityPermission() {
+        hasAccessibilityPermission = permissionManager.hasAccessibilityPermission
+    }
+}

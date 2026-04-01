@@ -9,7 +9,7 @@ APP_NAME="Mousetrap"
 BUNDLE_ID="com.pablopunk.mousetrap"
 BUILD_DIR="$ROOT/.build/$CONFIGURATION"
 STAGING_APP_DIR="$BUILD_DIR/$APP_NAME.app"
-INSTALL_DIR="${INSTALL_DIR:-$HOME/Applications}"
+INSTALL_DIR="${INSTALL_DIR:-/Applications}"
 INSTALLED_APP_DIR="$INSTALL_DIR/$APP_NAME.app"
 EXECUTABLE="$BUILD_DIR/$APP_NAME"
 
@@ -20,6 +20,14 @@ mkdir -p "$STAGING_APP_DIR/Contents/MacOS"
 mkdir -p "$STAGING_APP_DIR/Contents/Resources"
 
 cp "$EXECUTABLE" "$STAGING_APP_DIR/Contents/MacOS/$APP_NAME"
+
+if [[ -f "$ROOT/assets/AppIcon.icns" ]]; then
+  cp "$ROOT/assets/AppIcon.icns" "$STAGING_APP_DIR/Contents/Resources/AppIcon.icns"
+fi
+
+if [[ -f "$ROOT/assets/minimal-icon.png" ]]; then
+  cp "$ROOT/assets/minimal-icon.png" "$STAGING_APP_DIR/Contents/Resources/minimal-icon.png"
+fi
 
 cat > "$STAGING_APP_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -32,6 +40,8 @@ cat > "$STAGING_APP_DIR/Contents/Info.plist" <<PLIST
   <string>$APP_NAME</string>
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
@@ -52,9 +62,12 @@ cat > "$STAGING_APP_DIR/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+codesign --force --deep --sign - "$STAGING_APP_DIR"
+
 mkdir -p "$INSTALL_DIR"
 rm -rf "$INSTALLED_APP_DIR"
-cp -R "$STAGING_APP_DIR" "$INSTALLED_APP_DIR"
+ditto "$STAGING_APP_DIR" "$INSTALLED_APP_DIR"
+codesign --force --deep --sign - "$INSTALLED_APP_DIR"
 
 echo "Built $STAGING_APP_DIR"
 echo "Installed $INSTALLED_APP_DIR"
