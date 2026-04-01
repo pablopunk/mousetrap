@@ -31,11 +31,32 @@ make run
 
 ## Releases
 
-To release from `main`:
+One-time setup: store notarization credentials in your keychain:
+
+1. Generate an app-specific password at [appleid.apple.com](https://appleid.apple.com) (Sign-In and Security → App-Specific Passwords)
+2. Run:
+
+```bash
+xcrun notarytool store-credentials "SwiftShift" --apple-id YOUR_APPLE_ID --team-id YOUR_TEAM_ID
+```
+
+It will prompt you for the app-specific password.
+
+Then release from `main` with a single command:
 
 ```bash
 make release VERSION=0.1.0
 ```
+
+The release script will automatically:
+
+- use your only installed `Developer ID Application` signing identity
+- build, sign, notarize, and staple the app
+- create and push the release commit + tag
+- create the GitHub release and upload the zip
+- update the Homebrew tap if `GH_PAT` is set
+
+If you have multiple `Developer ID Application` certificates installed, set `CODESIGN_IDENTITY` explicitly before running the release.
 
 ## Acknowledgements
 

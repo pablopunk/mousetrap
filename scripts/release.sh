@@ -18,18 +18,43 @@ SHA_PATH="$ZIP_PATH.sha256"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
 NOTARY_KEYCHAIN_PROFILE="${NOTARY_KEYCHAIN_PROFILE:-${NOTARY_PROFILE:-SwiftShift}}"
 
+find_codesign_identity() {
+  security find-identity -v -p codesigning 2>/dev/null \
+    | grep '"Developer ID Application:' \
+    | sed -E 's/^.*"(Developer ID Application:[^"]+)"$/\1/'
+}
+
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Version must look like x.y.z"
   exit 1
 fi
 
 if [[ -z "$CODESIGN_IDENTITY" ]]; then
-  echo "Missing CODESIGN_IDENTITY"
-  exit 1
+  mapfile -t AVAILABLE_IDENTITIES < <(find_codesign_identity)
+
+  if [[ ${#AVAILABLE_IDENTITIES[@]} -eq 1 ]]; then
+    CODESIGN_IDENTITY="${AVAILABLE_IDENTITIES[0]}"
+    echo "Using signing identity: $CODESIGN_IDENTITY"
+  elif [[ ${#AVAILABLE_IDENTITIES[@]} -gt 1 ]]; then
+    echo "Found multiple Developer ID Application identities. Set CODESIGN_IDENTITY explicitly:" >&2
+    printf '  %s\n' "${AVAILABLE_IDENTITIES[@]}" >&2
+    exit 1
+  else
+    echo "No Developer ID Application signing identity found in your keychain." >&2
+    echo "Install a Developer ID Application certificate, or set CODESIGN_IDENTITY explicitly." >&2
+    exit 1
+  fi
 fi
 
 if [[ -z "$NOTARY_KEYCHAIN_PROFILE" ]]; then
-  echo "Missing NOTARY_KEYCHAIN_PROFILE"
+  echo "Missing NOTARY_KEYCHAIN_PROFILE" >&2
+  exit 1
+fi
+
+if ! xcrun notarytool history --keychain-profile "$NOTARY_KEYCHAIN_PROFILE" >/dev/null 2>&1; then
+  echo "Notary profile '$NOTARY_KEYCHAIN_PROFILE' is not available." >&2
+  echo "Create it once with:" >&2
+  echo "  xcrun notarytool store-credentials \"$NOTARY_KEYCHAIN_PROFILE\" --apple-id YOUR_APPLE_ID --team-id YOUR_TEAM_ID" >&2
   exit 1
 fi
 
