@@ -54,9 +54,11 @@ The release script will automatically:
 - build, sign, notarize, and staple the app
 - create and push the release commit + tag
 - create the GitHub release and upload the zip
-- update the Homebrew tap if `GH_PAT` is set
+- trigger GitHub Actions to update the Homebrew tap
 
 If you have multiple `Developer ID Application` certificates installed, set `CODESIGN_IDENTITY` explicitly before running the release.
+
+For the Homebrew update workflow, add a repository secret named `GH_PAT` with permission to push to `pablopunk/homebrew-brew`.
 
 ## Acknowledgements
 

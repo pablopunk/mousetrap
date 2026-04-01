@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Git tag to sync to Homebrew (for example v0.1.2)
+        required: true
+
+jobs:
+  update-homebrew:
+    runs-on: macos-latest
+    if: github.event_name != 'release' || github.event.release.draft == false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_PAT: ${{ secrets.GH_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure Homebrew PAT is configured
+        run: |
+          if [[ -z "${GH_PAT:-}" ]]; then
+            echo "Missing repository secret GH_PAT" >&2
+            exit 1
+          fi
+
+      - name: Resolve release metadata
+        id: meta
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            TAG='${{ github.event.release.tag_name }}'
+          else
+            TAG='${{ inputs.tag }}'
+          fi
+
+          VERSION="${TAG#v}"
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download release asset
+        run: |
+          rm -rf dist
+          mkdir -p dist
+          gh release download "${{ steps.meta.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "Mousetrap.zip" \
+            --dir dist
+
+      - name: Update Homebrew tap
+        run: |
+          bash ./scripts/update-homebrew-cask.sh \
+            "${{ steps.meta.outputs.version }}" \
+            "$PWD/dist/Mousetrap.zip"

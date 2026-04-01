@@ -133,11 +133,6 @@ else
     --notes "$RELEASE_NOTES_PREFIX"
 fi
 
-if [[ -n "${GH_PAT:-}" ]]; then
-  echo "Updating Homebrew tap..."
-  bash "$ROOT/scripts/update-homebrew-cask.sh" "$VERSION" "$ZIP_PATH"
-else
-  echo "Skipping Homebrew tap update because GH_PAT is not set."
-fi
+echo "GitHub release published. Homebrew tap will be updated by GitHub Actions."
 
 echo "✅ Release $TAG complete"
