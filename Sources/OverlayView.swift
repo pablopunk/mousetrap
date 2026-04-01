@@ -21,7 +21,9 @@ final class OverlayView: NSView {
             height: state.currentRect.height
         )
 
-        context.setFillColor(NSColor.black.withAlphaComponent(0.10).cgColor)
+        let isFinalClickLayout = state.layout.id == "finalClick"
+        let currentRectOverlayOpacity: CGFloat = isFinalClickLayout ? 0.03 : 0.10
+        context.setFillColor(NSColor.black.withAlphaComponent(currentRectOverlayOpacity).cgColor)
         context.fill(localCurrentRect)
 
         drawKeys(in: localCurrentRect)
@@ -32,9 +34,10 @@ final class OverlayView: NSView {
         let rowHeight = rect.height / CGFloat(rows.count)
         let cellInset: CGFloat = state.history.isEmpty ? 4 : 0
         let isFinalClickLayout = state.layout.id == "finalClick"
-        let cellFillOpacity: CGFloat = isFinalClickLayout ? 0.16 : 0.08
-        let cellStrokeOpacity: CGFloat = isFinalClickLayout ? 0.32 : 0.20
-        let fontScale: CGFloat = isFinalClickLayout ? 0.30 : 0.32
+        let cellFillOpacity: CGFloat = isFinalClickLayout ? 0.04 : 0.08
+        let cellStrokeOpacity: CGFloat = isFinalClickLayout ? 0.10 : 0.20
+        let textOpacity: CGFloat = isFinalClickLayout ? 0.55 : 0.94
+        let fontScale: CGFloat = isFinalClickLayout ? 0.20 : 0.32
 
         for (rowIndex, row) in rows.enumerated() {
             let cellWidth = rect.width / CGFloat(row.count)
@@ -60,7 +63,7 @@ final class OverlayView: NSView {
 
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: NSFont.monospacedSystemFont(ofSize: max(16, min(cell.width, cell.height) * fontScale), weight: .bold),
-                    .foregroundColor: NSColor.white,
+                    .foregroundColor: NSColor.white.withAlphaComponent(textOpacity),
                     .paragraphStyle: paragraph
                 ]
 
