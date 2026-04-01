@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 extension NSImage {
     static let menuBarIcon: NSImage = {
         guard let resourceURL = Bundle.main.url(forResource: "minimal-icon", withExtension: "png"),
