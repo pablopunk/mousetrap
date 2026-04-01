@@ -113,34 +113,37 @@ struct ShortcutRowView: View {
             }
             .frame(minHeight: 34)
 
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.tint)
+                        .frame(width: 18)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Arrow keys enter free mouse mode. Press Enter to left-click or ⇧↩ for right-click.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Travel")
+                        .font(.system(size: 13, weight: .medium))
 
-                    HStack(spacing: 10) {
-                        Text("Travel")
-                            .font(.system(size: 12, weight: .medium))
-                            .frame(width: 58, alignment: .leading)
+                    Spacer(minLength: 0)
 
+                    HStack(spacing: 8) {
                         Slider(value: $freeMouseStep, in: 4...80, step: 2)
                             .controlSize(.small)
+                            .frame(width: 90)
 
                         Text("\(Int(freeMouseStep))")
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .frame(width: 24, alignment: .trailing)
                     }
                 }
+
+                Text("↩ to click (twice to double click)\n⇧↩ to right click")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 28)
             }
-            .padding(.top, 2)
         }
     }
 }

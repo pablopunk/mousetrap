@@ -43,6 +43,24 @@ enum MouseController {
         print("[Mousetrap] right click at appkit=\(point) quartz=\(quartzPoint)")
     }
 
+    static func doubleClick(at point: CGPoint? = nil) {
+        let point = point ?? currentCursorPositionAppKit
+        let quartzPoint = quartzPoint(from: point)
+
+        for clickState in [1, 2] {
+            let mouseDown = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: quartzPoint, mouseButton: .left)
+            let mouseUp = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: quartzPoint, mouseButton: .left)
+            mouseDown?.flags = []
+            mouseUp?.flags = []
+            mouseDown?.setIntegerValueField(.mouseEventClickState, value: Int64(clickState))
+            mouseUp?.setIntegerValueField(.mouseEventClickState, value: Int64(clickState))
+            mouseDown?.post(tap: .cghidEventTap)
+            mouseUp?.post(tap: .cghidEventTap)
+        }
+
+        print("[Mousetrap] double click at appkit=\(point) quartz=\(quartzPoint)")
+    }
+
     @discardableResult
     static func moveFreeCursor(direction: InterceptedKey) -> Bool {
         let delta: CGPoint

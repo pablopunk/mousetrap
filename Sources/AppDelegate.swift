@@ -17,6 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let freeMouseKeyboardInterceptor = KeyboardInterceptor()
     private let freeMouseIndicatorController = FreeMouseIndicatorController()
     private lazy var navigator = GridNavigator()
+    private var pendingFreeMouseClickWorkItem: DispatchWorkItem?
+    private var pendingFreeMouseClickPoint: CGPoint?
+    private let freeMouseDoubleTapWindow: TimeInterval = 0.25
     private var unsafeStateTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -130,20 +133,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         switch key {
         case .escape:
+            cancelPendingFreeMouseClick()
             deactivateFreeMouseMode()
         case .returnKey:
-            let clickPoint = MouseController.currentCursorPositionAppKit
-            deactivateFreeMouseMode()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-                MouseController.leftClick(at: clickPoint)
-            }
+            handleFreeMouseReturn()
         case .shiftReturnKey:
             let clickPoint = MouseController.currentCursorPositionAppKit
+            cancelPendingFreeMouseClick()
             deactivateFreeMouseMode()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
                 MouseController.rightClick(at: clickPoint)
             }
         case .upArrow, .downArrow, .leftArrow, .rightArrow:
+            cancelPendingFreeMouseClick()
             if MouseController.moveFreeCursor(direction: key) {
                 freeMouseIndicatorController.updatePosition(to: MouseController.currentCursorPositionAppKit)
             }
@@ -162,12 +164,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func deactivateFreeMouseMode() {
+        cancelPendingFreeMouseClick()
         freeMouseKeyboardInterceptor.stop()
         freeMouseIndicatorController.hide()
 
         if !isInUnsafeState {
             cancelUnsafeStateTimeout()
         }
+    }
+
+    private func handleFreeMouseReturn() {
+        let clickPoint = MouseController.currentCursorPositionAppKit
+
+        if pendingFreeMouseClickWorkItem != nil {
+            cancelPendingFreeMouseClick()
+            deactivateFreeMouseMode()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                MouseController.doubleClick(at: clickPoint)
+            }
+            return
+        }
+
+        pendingFreeMouseClickPoint = clickPoint
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, let clickPoint = self.pendingFreeMouseClickPoint else { return }
+            self.pendingFreeMouseClickWorkItem = nil
+            self.pendingFreeMouseClickPoint = nil
+            self.deactivateFreeMouseMode()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                MouseController.leftClick(at: clickPoint)
+            }
+        }
+
+        pendingFreeMouseClickWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + freeMouseDoubleTapWindow, execute: workItem)
+    }
+
+    private func cancelPendingFreeMouseClick() {
+        pendingFreeMouseClickWorkItem?.cancel()
+        pendingFreeMouseClickWorkItem = nil
+        pendingFreeMouseClickPoint = nil
     }
 
     private func updateOverlayAndCursor() {
