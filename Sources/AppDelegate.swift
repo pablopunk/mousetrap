@@ -4,8 +4,6 @@ import KeyboardShortcuts
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private static let unsafeStateTimeout: TimeInterval = 10
-
     private let overlayController = OverlayWindowController()
     private let screenResolver = FocusedScreenResolver()
     private let permissionManager = PermissionManager()
@@ -215,7 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard isInUnsafeState else { return }
 
         unsafeStateTimer?.invalidate()
-        unsafeStateTimer = Timer.scheduledTimer(withTimeInterval: Self.unsafeStateTimeout, repeats: false) { [weak self] _ in
+        unsafeStateTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(settings.unsafeStateTimeoutSeconds), repeats: false) { [weak self] _ in
             Task { @MainActor in
                 self?.resetToSafeStateDueToTimeout()
             }

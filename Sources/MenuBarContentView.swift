@@ -93,6 +93,7 @@ struct LaunchAtLoginRow: View {
 
 struct ShortcutRowView: View {
     @AppStorage(SettingsKeys.freeMouseStep) private var freeMouseStep = SettingsKeys.defaultFreeMouseStep
+    @AppStorage(SettingsKeys.unsafeStateTimeoutSeconds) private var unsafeStateTimeoutSeconds = SettingsKeys.defaultUnsafeStateTimeoutSeconds
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -104,7 +105,7 @@ struct ShortcutRowView: View {
 
                 Text("Activate")
                     .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 58, alignment: .leading)
+                    .frame(width: 92, alignment: .leading)
 
                 Spacer(minLength: 0)
 
@@ -112,6 +113,42 @@ struct ShortcutRowView: View {
                     .frame(width: 130, alignment: .trailing)
             }
             .frame(minHeight: 34)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: "timer")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.tint)
+                        .frame(width: 18)
+
+                    Text("Global timeout")
+                        .font(.system(size: 13, weight: .medium))
+
+                    Spacer(minLength: 0)
+
+                    HStack(spacing: 6) {
+                        Text("\(unsafeStateTimeoutSeconds)")
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 24, alignment: .trailing)
+
+                        Text("secs")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+
+                        Stepper("", value: $unsafeStateTimeoutSeconds, in: 3...60)
+                            .labelsHidden()
+                            .controlSize(.small)
+                    }
+                }
+
+                Text("Dismiss the UI when no action is taken")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 28)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .center, spacing: 10) {
@@ -170,15 +207,13 @@ struct MenuBarContentView: View {
             Divider().opacity(0.5)
 
             VStack(alignment: .leading, spacing: 8) {
-                SectionHeaderView(title: "Shortcuts", icon: "keyboard")
+                ShortcutRowView()
 
-                if hasAccessibilityPermission {
-                    ShortcutRowView()
-                } else {
+                if !hasAccessibilityPermission {
                     Button {
                         permissionManager.openAccessibilitySettings()
                     } label: {
-                        Label("Open Accessibility Permissions", systemImage: "exclamationmark.triangle")
+                        Label("Accessibility permissions needed", systemImage: "exclamationmark.triangle")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.orange)
                     }

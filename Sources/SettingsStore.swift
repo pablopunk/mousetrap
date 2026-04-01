@@ -6,6 +6,8 @@ import KeyboardShortcuts
 enum SettingsKeys {
     static let freeMouseStep = "freeMouseStep"
     static let defaultFreeMouseStep: Double = 20
+    static let unsafeStateTimeoutSeconds = "unsafeStateTimeoutSeconds"
+    static let defaultUnsafeStateTimeoutSeconds = 10
 }
 
 @MainActor
@@ -23,6 +25,10 @@ final class SettingsStore: ObservableObject {
 
         if UserDefaults.standard.object(forKey: SettingsKeys.freeMouseStep) == nil {
             UserDefaults.standard.set(SettingsKeys.defaultFreeMouseStep, forKey: SettingsKeys.freeMouseStep)
+        }
+
+        if UserDefaults.standard.object(forKey: SettingsKeys.unsafeStateTimeoutSeconds) == nil {
+            UserDefaults.standard.set(SettingsKeys.defaultUnsafeStateTimeoutSeconds, forKey: SettingsKeys.unsafeStateTimeoutSeconds)
         }
     }
 
@@ -46,5 +52,10 @@ final class SettingsStore: ObservableObject {
     var shortcutDisplay: String {
         guard let shortcut = KeyboardShortcuts.getShortcut(for: .activateMousetrap) else { return "Not set" }
         return shortcut.description
+    }
+
+    var unsafeStateTimeoutSeconds: Int {
+        let value = UserDefaults.standard.integer(forKey: SettingsKeys.unsafeStateTimeoutSeconds)
+        return value > 0 ? value : SettingsKeys.defaultUnsafeStateTimeoutSeconds
     }
 }
