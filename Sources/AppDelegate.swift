@@ -13,13 +13,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsCancellables = Set<AnyCancellable>()
     private var previouslyFocusedApp: NSRunningApplication?
     private let keyboardLayoutResolver = KeyboardLayoutResolver()
+    private let overlayKeyboardInterceptor = KeyboardInterceptor()
     private let freeMouseKeyboardInterceptor = KeyboardInterceptor()
     private let freeMouseIndicatorController = FreeMouseIndicatorController()
     private lazy var navigator = GridNavigator()
     private var unsafeStateTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        overlayController.onKey = { [weak self] key in
+        overlayKeyboardInterceptor.onKey = { [weak self] key in
             self?.handleInterceptedKey(key)
         }
         freeMouseKeyboardInterceptor.onKey = { [weak self] key in
@@ -65,10 +66,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let screen else { return }
 
         navigator.reset(to: screen.frame)
+        overlayKeyboardInterceptor.start()
         overlayController.show(on: screen, state: navigator.state)
     }
 
     private func deactivateOverlay(restoreFocus: Bool = true) {
+        overlayKeyboardInterceptor.stop()
         overlayController.hide()
 
         if !isInUnsafeState {
@@ -151,7 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startFreeMouseMode(withInitialMove key: InterceptedKey) {
         freeMouseKeyboardInterceptor.start()
-        deactivateOverlay()
+        deactivateOverlay(restoreFocus: false)
         if MouseController.moveFreeCursor(direction: key) {
             freeMouseIndicatorController.show(at: MouseController.currentCursorPositionAppKit)
         }

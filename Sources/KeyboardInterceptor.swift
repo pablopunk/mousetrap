@@ -92,15 +92,40 @@ final class KeyboardInterceptor {
     private func map(_ event: CGEvent) -> InterceptedKey? {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let flags = NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue))
+        let nonShiftModifiers = flags.intersection([.command, .control, .option])
 
         switch keyCode {
         case 53: return .escape
-        case 36, 76: return flags.contains(.shift) ? .shiftReturnKey : .returnKey
-        case 123: return .leftArrow
-        case 124: return .rightArrow
-        case 125: return .downArrow
-        case 126: return .upArrow
-        default: return nil
+        case 51: return nonShiftModifiers.isEmpty ? .delete : nil
+        case 36, 76:
+            guard nonShiftModifiers.isEmpty else { return nil }
+            return flags.contains(.shift) ? .shiftReturnKey : .returnKey
+        case 49:
+            return nonShiftModifiers.isEmpty ? .space : nil
+        case 123:
+            return nonShiftModifiers.isEmpty ? .leftArrow : nil
+        case 124:
+            return nonShiftModifiers.isEmpty ? .rightArrow : nil
+        case 125:
+            return nonShiftModifiers.isEmpty ? .downArrow : nil
+        case 126:
+            return nonShiftModifiers.isEmpty ? .upArrow : nil
+        default:
+            break
         }
+
+        guard nonShiftModifiers.isEmpty,
+              let nsEvent = NSEvent(cgEvent: event),
+              let characters = nsEvent.charactersIgnoringModifiers?.lowercased(),
+              let character = characters.first else {
+            return nil
+        }
+
+        let supportedCharacters = "1234567890-=qwertyuiop[]\\asdfghjkl;'zxcvbnm,./ñ"
+        guard supportedCharacters.contains(character) else {
+            return nil
+        }
+
+        return .character(character)
     }
 }

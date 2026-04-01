@@ -19,8 +19,6 @@ final class OverlayWindowController {
         window?.onKey = onKey
         overlayView?.state = state
         overlayView?.frame = CGRect(origin: .zero, size: screen.frame.size)
-        NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
         window?.orderFrontRegardless()
     }
 
