@@ -20,10 +20,10 @@ struct GridLayout: Equatable {
     ])
 
     static let finalClick = GridLayout(id: "finalClick", rows: [
-        Array("120"),
-        Array("qwp"),
-        Array("asñ"),
-        Array("zx-")
+        Array("123"),
+        Array("qwe"),
+        Array("asd"),
+        Array("zxc")
     ])
 
     var maxColumns: Int {
