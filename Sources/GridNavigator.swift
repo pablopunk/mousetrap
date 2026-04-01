@@ -5,6 +5,8 @@ struct GridLayout: Equatable {
     let id: String
     let rows: [[Character]]
 
+    // Fallback only. In normal app flow this is overridden by KeyboardLayoutResolver.
+    // Keep this in sync conceptually with KeyboardLayoutResolver.rootTemplate.
     static let full = GridLayout(id: "full", rows: [
         Array("1234567890"),
         Array("qwertyuiop"),
@@ -12,6 +14,8 @@ struct GridLayout: Equatable {
         Array("zxcvbnm,./")
     ])
 
+    // Fallback only. In normal app flow this is overridden by KeyboardLayoutResolver.
+    // Keep this in sync conceptually with KeyboardLayoutResolver.refinementTemplate.
     static let refinement = GridLayout(id: "refinement", rows: [
         Array("123789"),
         Array("qweiop"),
@@ -19,6 +23,8 @@ struct GridLayout: Equatable {
         Array("zxc,.-")
     ])
 
+    // Fallback only. In normal app flow this is overridden by KeyboardLayoutResolver.
+    // Keep this in sync conceptually with KeyboardLayoutResolver.finalClickTemplate.
     static let finalClick = GridLayout(id: "finalClick", rows: [
         Array("123"),
         Array("qwe"),

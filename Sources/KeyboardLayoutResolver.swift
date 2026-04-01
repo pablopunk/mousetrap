@@ -16,6 +16,9 @@ struct KeyboardLayoutResolver {
         [6, 7, 8, 43, 47, 44]
     ]
 
+    // Final click uses the outer keys of the refinement grid.
+    // On the current ES layout these keycodes resolve to:
+    // ["1", "2", "0"], ["q", "w", "p"], ["a", "s", "ñ"], ["z", "x", "'"]
     private let finalClickTemplate: [[UInt16]] = [
         [18, 19, 29],
         [12, 13, 35],
