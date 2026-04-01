@@ -17,6 +17,7 @@ struct KeyboardLayoutResolver {
     ]
 
     private let finalClickTemplate: [[UInt16]] = [
+        [18, 19, 29],
         [12, 13, 35],
         [0, 1, 41],
         [6, 7, 27]

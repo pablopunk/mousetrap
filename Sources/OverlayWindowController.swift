@@ -19,7 +19,7 @@ final class OverlayWindowController {
         window?.onKey = onKey
         overlayView?.state = state
         overlayView?.frame = CGRect(origin: .zero, size: screen.frame.size)
-        window?.orderFrontRegardless()
+        window?.makeKeyAndOrderFront(nil)
     }
 
     func update(state: GridState) {

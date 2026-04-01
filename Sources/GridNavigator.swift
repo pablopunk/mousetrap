@@ -20,6 +20,7 @@ struct GridLayout: Equatable {
     ])
 
     static let finalClick = GridLayout(id: "finalClick", rows: [
+        Array("120"),
         Array("qwp"),
         Array("asñ"),
         Array("zx-")
@@ -57,7 +58,7 @@ struct GridState {
 
 final class GridNavigator {
     private let refinementExpansionRatio: CGFloat = 0.05
-    private let finalClickExpansionRatio: CGFloat = 0.05
+    private let finalClickExpansionRatio: CGFloat = 0.08
 
     private var rootLayout: GridLayout
     private var refinementLayout: GridLayout

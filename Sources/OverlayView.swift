@@ -31,6 +31,10 @@ final class OverlayView: NSView {
         let rows = state.layout.rows
         let rowHeight = rect.height / CGFloat(rows.count)
         let cellInset: CGFloat = state.history.isEmpty ? 4 : 0
+        let isFinalClickLayout = state.layout.id == "finalClick"
+        let cellFillOpacity: CGFloat = isFinalClickLayout ? 0.16 : 0.08
+        let cellStrokeOpacity: CGFloat = isFinalClickLayout ? 0.32 : 0.20
+        let fontScale: CGFloat = isFinalClickLayout ? 0.30 : 0.32
 
         for (rowIndex, row) in rows.enumerated() {
             let cellWidth = rect.width / CGFloat(row.count)
@@ -44,10 +48,10 @@ final class OverlayView: NSView {
                 ).insetBy(dx: cellInset, dy: cellInset)
 
                 let rounded = NSBezierPath(roundedRect: cell, xRadius: 8, yRadius: 8)
-                NSColor.white.withAlphaComponent(0.08).setFill()
+                NSColor.white.withAlphaComponent(cellFillOpacity).setFill()
                 rounded.fill()
 
-                NSColor.white.withAlphaComponent(0.20).setStroke()
+                NSColor.white.withAlphaComponent(cellStrokeOpacity).setStroke()
                 rounded.lineWidth = 1
                 rounded.stroke()
 
@@ -55,7 +59,7 @@ final class OverlayView: NSView {
                 paragraph.alignment = .center
 
                 let attrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.monospacedSystemFont(ofSize: max(16, min(cell.width, cell.height) * 0.32), weight: .bold),
+                    .font: NSFont.monospacedSystemFont(ofSize: max(16, min(cell.width, cell.height) * fontScale), weight: .bold),
                     .foregroundColor: NSColor.white,
                     .paragraphStyle: paragraph
                 ]

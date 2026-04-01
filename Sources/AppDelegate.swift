@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let keyboardLayoutResolver = KeyboardLayoutResolver()
     private let overlayKeyboardInterceptor = KeyboardInterceptor()
     private let freeMouseKeyboardInterceptor = KeyboardInterceptor()
+    private let mouseMovementInterceptor = MouseMovementInterceptor()
     private let freeMouseIndicatorController = FreeMouseIndicatorController()
     private lazy var navigator = GridNavigator()
     private var pendingFreeMouseClickWorkItem: DispatchWorkItem?
@@ -24,9 +25,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlayKeyboardInterceptor.onKey = { [weak self] key in
             self?.handleInterceptedKey(key)
         }
+        overlayController.onKey = { [weak self] key in
+            self?.handleInterceptedKey(key)
+        }
         freeMouseKeyboardInterceptor.onKey = { [weak self] key in
             self?.handleFreeMouseKey(key)
         }
+        mouseMovementInterceptor.onMouseMovement = { [weak self] event in
+            self?.handleObservedMouseMovement(event)
+        }
+        mouseMovementInterceptor.start()
 
         KeyboardShortcuts.onKeyDown(for: .activateMousetrap) { [weak self] in
             self?.toggleOverlay()
@@ -35,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         cancelUnsafeStateTimeout()
+        mouseMovementInterceptor.stop()
     }
 
     private var isInUnsafeState: Bool {
@@ -154,7 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startFreeMouseMode(withInitialMove key: InterceptedKey) {
         freeMouseKeyboardInterceptor.start()
-        deactivateOverlay(restoreFocus: false)
+        deactivateOverlay(restoreFocus: true)
         if MouseController.moveFreeCursor(direction: key) {
             freeMouseIndicatorController.show(at: MouseController.currentCursorPositionAppKit)
         }
@@ -218,6 +227,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.resetToSafeStateDueToTimeout()
             }
         }
+    }
+
+    private func handleObservedMouseMovement(_ event: CGEvent) {
+        guard !MouseController.shouldIgnoreObservedMouseMovement(event) else { return }
+        MouseController.clearTrackedCursorPosition()
+        guard isInUnsafeState else { return }
+
+        print("[Mousetrap] mouse movement detected, resetting to safe state")
+        deactivateFreeMouseMode()
+        deactivateOverlay()
     }
 
     private func cancelUnsafeStateTimeout() {
