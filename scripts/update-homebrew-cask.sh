@@ -19,7 +19,6 @@ TAP_DIR="$(mktemp -d /tmp/mousetrap-homebrew.XXXXXX)"
 CASK_PATH="$TAP_DIR/Casks/mousetrap.rb"
 ZIP_SHA="$(shasum -a 256 "$ZIP_PATH" | awk '{print $1}')"
 GIT_REMOTE="https://github.com/$TAP_REPO.git"
-GIT_AUTH_ARGS=()
 
 cleanup() {
   rm -rf "$TAP_DIR"
@@ -27,10 +26,10 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ -n "${GH_PAT:-}" ]]; then
-  GIT_AUTH_ARGS=(-c "http.extraHeader=Authorization: Bearer $GH_PAT")
+  GIT_REMOTE="https://x-access-token:${GH_PAT}@github.com/$TAP_REPO.git"
 fi
 
-git "${GIT_AUTH_ARGS[@]}" clone "$GIT_REMOTE" "$TAP_DIR"
+git clone "$GIT_REMOTE" "$TAP_DIR"
 
 cat > "$CASK_PATH" <<EOF
 cask "mousetrap" do
@@ -59,7 +58,7 @@ git config user.email "github-actions[bot]@users.noreply.github.com"
 if ! git diff --quiet -- Casks/mousetrap.rb; then
   git add Casks/mousetrap.rb
   git commit -m "mousetrap: update to v$VERSION"
-  git "${GIT_AUTH_ARGS[@]}" push
+  git push
 else
   echo "Homebrew cask already up to date."
 fi
