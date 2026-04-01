@@ -48,18 +48,6 @@ Then release from `main` with a single command:
 make release VERSION=0.1.0
 ```
 
-The release script will automatically:
-
-- use your only installed `Developer ID Application` signing identity
-- build, sign, notarize, and staple the app
-- create and push the release commit + tag
-- create the GitHub release and upload the zip
-- trigger GitHub Actions to update the Homebrew tap
-
-If you have multiple `Developer ID Application` certificates installed, set `CODESIGN_IDENTITY` explicitly before running the release.
-
-For the Homebrew update workflow, add a repository secret named `GH_PAT` with permission to push to `pablopunk/homebrew-brew`.
-
 ## Acknowledgements
 
 Other apps I've tried to do this, but haven't worked for me:
