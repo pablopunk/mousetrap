@@ -41,6 +41,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        restoreMenuBarIconIfNeeded()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        restoreMenuBarIconIfNeeded()
+        return true
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         cancelUnsafeStateTimeout()
         mouseMovementInterceptor.stop()
@@ -242,6 +251,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func cancelUnsafeStateTimeout() {
         unsafeStateTimer?.invalidate()
         unsafeStateTimer = nil
+    }
+
+    private func restoreMenuBarIconIfNeeded() {
+        guard UserDefaults.standard.bool(forKey: "showMenuBarIcon") == false else { return }
+        UserDefaults.standard.set(true, forKey: "showMenuBarIcon")
     }
 
     private func resetToSafeStateDueToTimeout() {
