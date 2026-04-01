@@ -27,6 +27,7 @@ rm -f "$OUTPUT_DIR/Assets.car" "$OUTPUT_DIR/${APP_ICON_NAME}.icns" "$PARTIAL_PLI
 
 log "Icon Composer source: $ICON_SOURCE"
 log "Generating icon assets in: $OUTPUT_DIR"
+log "Running actool with full output enabled for debugging"
 
 xcrun actool \
   "$ICON_SOURCE" \
@@ -38,7 +39,7 @@ xcrun actool \
   --standalone-icon-behavior default \
   --errors \
   --warnings \
-  --notices >/dev/null
+  --notices
 
 if [[ ! -f "$OUTPUT_DIR/Assets.car" ]]; then
   echo "actool did not generate Assets.car" >&2
