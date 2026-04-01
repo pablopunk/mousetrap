@@ -133,7 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .escape:
             cancelPendingFreeMouseClick()
             deactivateFreeMouseMode()
-        case .returnKey:
+        case .returnKey, .space:
             handleFreeMouseReturn()
         case .shiftReturnKey:
             let clickPoint = MouseController.currentCursorPositionAppKit
@@ -147,7 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if MouseController.moveFreeCursor(direction: key) {
                 freeMouseIndicatorController.updatePosition(to: MouseController.currentCursorPositionAppKit)
             }
-        case .character, .delete, .space:
+        case .character, .delete:
             break
         }
     }

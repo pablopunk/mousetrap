@@ -24,11 +24,6 @@ final class OverlayView: NSView {
         context.setFillColor(NSColor.black.withAlphaComponent(0.10).cgColor)
         context.fill(localCurrentRect)
 
-        let borderPath = NSBezierPath(rect: localCurrentRect)
-        NSColor.systemGreen.withAlphaComponent(0.95).setStroke()
-        borderPath.lineWidth = 3
-        borderPath.stroke()
-
         drawKeys(in: localCurrentRect)
     }
 
@@ -77,7 +72,7 @@ final class OverlayView: NSView {
             }
         }
 
-        let hint = "⌘⇧Space toggle · Esc cancel · Delete back · Space/Return click"
+        let hint = "⌘⇧Space toggle · Esc cancel · Delete back · Return click"
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         let attrs: [NSAttributedString.Key: Any] = [
