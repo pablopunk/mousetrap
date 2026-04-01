@@ -24,6 +24,26 @@ find_codesign_identity() {
     | sed -E 's/^.*"(Developer ID Application:[^"]+)"$/\1/'
 }
 
+generate_release_notes_prefix() {
+  local previous_tag="$1"
+  local range
+  local commits
+
+  if [[ -n "$previous_tag" ]]; then
+    range="$previous_tag..$TAG"
+  else
+    range="$TAG"
+  fi
+
+  commits="$(git log --pretty=format:'- %s (%h)' "$range")"
+
+  if [[ -z "$commits" ]]; then
+    return 0
+  fi
+
+  printf '## All Commits\n%s\n\n' "$commits"
+}
+
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Version must look like x.y.z"
   exit 1
@@ -99,15 +119,18 @@ if gh release view "$TAG" >/dev/null 2>&1; then
 fi
 
 echo "Creating GitHub release..."
+RELEASE_NOTES_PREFIX="$(generate_release_notes_prefix "$PREV_TAG")"
 if [[ -n "$PREV_TAG" ]]; then
   gh release create "$TAG" "$ZIP_PATH" "$SHA_PATH" \
     --title "$TAG" \
     --generate-notes \
+    --notes "$RELEASE_NOTES_PREFIX" \
     --notes-start-tag "$PREV_TAG"
 else
   gh release create "$TAG" "$ZIP_PATH" "$SHA_PATH" \
     --title "$TAG" \
-    --generate-notes
+    --generate-notes \
+    --notes "$RELEASE_NOTES_PREFIX"
 fi
 
 if [[ -n "${GH_PAT:-}" ]]; then
