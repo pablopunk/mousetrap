@@ -16,7 +16,7 @@ APP_NAME="Mousetrap"
 ZIP_PATH="$ROOT/dist/$APP_NAME.zip"
 SHA_PATH="$ZIP_PATH.sha256"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
-NOTARY_KEYCHAIN_PROFILE="${NOTARY_KEYCHAIN_PROFILE:-${NOTARY_PROFILE:-SwiftShift}}"
+NOTARY_KEYCHAIN_PROFILE="${NOTARY_KEYCHAIN_PROFILE:-${NOTARY_PROFILE:-Mousetrap}}"
 
 find_codesign_identity() {
   security find-identity -v -p codesigning 2>/dev/null \

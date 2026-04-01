@@ -37,7 +37,7 @@ One-time setup: store notarization credentials in your keychain:
 2. Run:
 
 ```bash
-xcrun notarytool store-credentials "SwiftShift" --apple-id YOUR_APPLE_ID --team-id YOUR_TEAM_ID
+xcrun notarytool store-credentials "Mousetrap" --apple-id YOUR_APPLE_ID --team-id YOUR_TEAM_ID
 ```
 
 It will prompt you for the app-specific password.
