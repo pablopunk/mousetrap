@@ -19,7 +19,37 @@ INSTALL_APP="${INSTALL_APP:-1}"
 EXECUTABLE="$BUILD_DIR/$EXECUTABLE_NAME"
 APP_ICON_NAME="AppIcon"
 APP_ICON_FILE="$ROOT/assets/${APP_ICON_NAME}.icns"
-CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
+PREFER_STABLE_DEV_SIGNING="${PREFER_STABLE_DEV_SIGNING:-0}"
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
+
+find_apple_development_identity() {
+  security find-identity -v -p codesigning 2>/dev/null \
+    | grep '"Apple Development:' \
+    | sed -E 's/^.*"(Apple Development:[^"]+)"$/\1/'
+}
+
+if [[ -z "$CODESIGN_IDENTITY" && "$PREFER_STABLE_DEV_SIGNING" == "1" ]]; then
+  mapfile -t AVAILABLE_DEV_IDENTITIES < <(find_apple_development_identity)
+
+  if [[ ${#AVAILABLE_DEV_IDENTITIES[@]} -eq 1 ]]; then
+    CODESIGN_IDENTITY="${AVAILABLE_DEV_IDENTITIES[0]}"
+    echo "Using Apple Development signing identity: $CODESIGN_IDENTITY"
+  elif [[ ${#AVAILABLE_DEV_IDENTITIES[@]} -gt 1 ]]; then
+    echo "Found multiple Apple Development signing identities; falling back to ad-hoc signing." >&2
+    echo "Set CODESIGN_IDENTITY explicitly to keep Accessibility permissions stable." >&2
+    printf '  %s\n' "${AVAILABLE_DEV_IDENTITIES[@]}" >&2
+  fi
+fi
+
+if [[ -z "$CODESIGN_IDENTITY" ]]; then
+  CODESIGN_IDENTITY="-"
+  if [[ "$PREFER_STABLE_DEV_SIGNING" == "1" ]]; then
+    echo "Warning: using ad-hoc signing for $APP_NAME." >&2
+    echo "Accessibility permissions may need to be re-granted after rebuilds." >&2
+    echo "Set CODESIGN_IDENTITY='Apple Development: Your Name (TEAMID)' to avoid that." >&2
+  fi
+fi
+
 CODESIGN_OPTIONS=(--force --deep --sign "$CODESIGN_IDENTITY")
 
 if [[ "$CODESIGN_IDENTITY" != "-" ]]; then
