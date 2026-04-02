@@ -10,20 +10,17 @@ struct KeyboardLayoutResolver {
     ]
 
     private let refinementTemplate: [[UInt16]] = [
-        [18, 19, 20, 26, 28, 25],
-        [12, 13, 14, 34, 31, 35],
-        [0, 1, 2, 40, 37, 41],
-        [6, 7, 8, 43, 47, 44]
+        [18, 19, 20, 21, 23, 22, 26, 28, 25, 29],
+        [12, 13, 14, 15, 17, 16, 32, 34, 31, 35],
+        [0, 1, 2, 3, 5, 4, 38, 40, 37, 41],
+        [6, 7, 8, 9, 11, 45, 46, 43, 47, 44]
     ]
 
-    // Final click uses the first three keys of the refinement grid.
-    // On the current ES layout these keycodes resolve to:
-    // ["1", "2", "3"], ["q", "w", "e"], ["a", "s", "d"], ["z", "x", "c"]
     private let finalClickTemplate: [[UInt16]] = [
-        [18, 19, 20],
-        [12, 13, 14],
-        [0, 1, 2],
-        [6, 7, 8]
+        [18, 19, 20, 21, 23, 22, 26, 28, 25, 29],
+        [12, 13, 14, 15, 17, 16, 32, 34, 31, 35],
+        [0, 1, 2, 3, 5, 4, 38, 40, 37, 41],
+        [6, 7, 8, 9, 11, 45, 46, 43, 47, 44]
     ]
 
     func resolveLayouts() -> (root: GridLayout, refinement: GridLayout, finalClick: GridLayout) {

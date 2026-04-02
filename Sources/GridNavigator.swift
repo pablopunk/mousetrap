@@ -17,19 +17,19 @@ struct GridLayout: Equatable {
     // Fallback only. In normal app flow this is overridden by KeyboardLayoutResolver.
     // Keep this in sync conceptually with KeyboardLayoutResolver.refinementTemplate.
     static let refinement = GridLayout(id: "refinement", rows: [
-        Array("123789"),
-        Array("qweiop"),
-        Array("asdklñ"),
-        Array("zxc,.-")
+        Array("1234567890"),
+        Array("qwertyuiop"),
+        Array("asdfghjklñ"),
+        Array("zxcvbnm,./")
     ])
 
     // Fallback only. In normal app flow this is overridden by KeyboardLayoutResolver.
     // Keep this in sync conceptually with KeyboardLayoutResolver.finalClickTemplate.
     static let finalClick = GridLayout(id: "finalClick", rows: [
-        Array("123"),
-        Array("qwe"),
-        Array("asd"),
-        Array("zxc")
+        Array("1234567890"),
+        Array("qwertyuiop"),
+        Array("asdfghjklñ"),
+        Array("zxcvbnm,./")
     ])
 
     var maxColumns: Int {
@@ -63,8 +63,14 @@ struct GridState {
 }
 
 final class GridNavigator {
-    private let refinementExpansionRatio: CGFloat = 0.05
-    private let finalClickExpansionRatio: CGFloat = 0.08
+    private let refinementWidthExpansionRatio: CGFloat = 0.5
+    private let finalClickBaseWidthExpansionRatio: CGFloat = 0.5
+    private let finalClickLaptopHeightExpansionRatio: CGFloat = 0.08
+    private let finalClickDesktopHeightExpansionRatio: CGFloat = 0.03
+    private let finalClickLaptopTargetKeyWidth: CGFloat = 22
+    private let finalClickDesktopTargetKeyWidth: CGFloat = 19
+    private let finalClickMaxScreenWidthFraction: CGFloat = 0.4
+    private let compactScreenWidthThreshold: CGFloat = 1600
 
     private var rootLayout: GridLayout
     private var refinementLayout: GridLayout
@@ -135,22 +141,33 @@ final class GridNavigator {
     }
 
     private func expandedRectIfNeeded(_ rect: CGRect, forDepth depth: Int) -> CGRect {
-        let expansionRatio: CGFloat
+        let widthExpansionRatio: CGFloat
+        let heightExpansionRatio: CGFloat
 
         switch depth {
         case 1:
-            expansionRatio = refinementExpansionRatio
+            widthExpansionRatio = refinementWidthExpansionRatio
+            heightExpansionRatio = 0
         case 2:
-            expansionRatio = finalClickExpansionRatio
+            let compactScreenFactor = max(0, min(1, (compactScreenWidthThreshold - state.screenRect.width) / 500))
+            let targetKeyWidth = finalClickDesktopTargetKeyWidth + ((finalClickLaptopTargetKeyWidth - finalClickDesktopTargetKeyWidth) * compactScreenFactor)
+            let heightBoost = finalClickDesktopHeightExpansionRatio + ((finalClickLaptopHeightExpansionRatio - finalClickDesktopHeightExpansionRatio) * compactScreenFactor)
+            let baseWidth = rect.width * (1 + 2 * finalClickBaseWidthExpansionRatio)
+            let targetWidthFromKeys = targetKeyWidth * CGFloat(finalClickLayout.maxColumns)
+            let maxAllowedWidth = state.screenRect.width * finalClickMaxScreenWidthFraction
+            let desiredWidth = min(max(baseWidth, targetWidthFromKeys), maxAllowedWidth)
+            widthExpansionRatio = max(0, (desiredWidth / max(rect.width, 1) - 1) / 2)
+            heightExpansionRatio = heightBoost
         default:
-            expansionRatio = 0
+            widthExpansionRatio = 0
+            heightExpansionRatio = 0
         }
 
-        guard expansionRatio > 0 else { return rect }
+        guard widthExpansionRatio > 0 || heightExpansionRatio > 0 else { return rect }
 
         let expanded = rect.insetBy(
-            dx: -rect.width * expansionRatio,
-            dy: -rect.height * expansionRatio
+            dx: -rect.width * widthExpansionRatio,
+            dy: -rect.height * heightExpansionRatio
         )
 
         return expanded.intersection(state.screenRect)
