@@ -5,8 +5,10 @@ import Foundation
 @MainActor
 enum MouseController {
     private static let syntheticHoverEventUserData: Int64 = 0x4D4F5553
+    private static let syntheticDragEventUserData: Int64 = 0x44524147
     private static var lastProgrammaticQuartzMove: (point: CGPoint, time: CFAbsoluteTime)?
     private static var lastTrackedCursorPositionAppKit: CGPoint?
+    private static var isLeftDragActive = false
 
     private static var freeMoveStep: CGFloat {
         CGFloat(UserDefaults.standard.double(forKey: SettingsKeys.freeMouseStep)).clamped(to: 4...80)
@@ -27,7 +29,11 @@ enum MouseController {
         let quartzPoint = currentQuartzCursorPosition
         lastProgrammaticQuartzMove = (quartzPoint, CFAbsoluteTimeGetCurrent())
         lastTrackedCursorPositionAppKit = point
-        postSyntheticHoverEvent(at: quartzPoint)
+        if isLeftDragActive {
+            postSyntheticDragEvent(at: quartzPoint)
+        } else {
+            postSyntheticHoverEvent(at: quartzPoint)
+        }
 
         print("[Mousetrap] move cursor to appkit=\(point) displayLocalQuartz=\(displayPoint) displayID=\(displayID) quartz=\(quartzPoint)")
         return true
@@ -61,6 +67,38 @@ enum MouseController {
         mouseDown?.post(tap: .cghidEventTap)
         mouseUp?.post(tap: .cghidEventTap)
         print("[Mousetrap] right click at appkit=\(point) quartz=\(eventPoint)")
+    }
+
+    static func beginLeftDrag(at point: CGPoint? = nil) {
+        let point = point ?? currentCursorPositionAppKit
+        if point != currentCursorPositionAppKit {
+            _ = moveCursor(to: point)
+        }
+        guard !isLeftDragActive else { return }
+
+        let eventPoint = currentQuartzCursorPosition
+        let mouseDown = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: eventPoint, mouseButton: .left)
+        mouseDown?.flags = []
+        mouseDown?.setIntegerValueField(.eventSourceUserData, value: syntheticDragEventUserData)
+        mouseDown?.post(tap: .cghidEventTap)
+        isLeftDragActive = true
+        print("[Mousetrap] begin left drag at appkit=\(point) quartz=\(eventPoint)")
+    }
+
+    static func endLeftDrag(at point: CGPoint? = nil) {
+        guard isLeftDragActive else { return }
+
+        let point = point ?? currentCursorPositionAppKit
+        if point != currentCursorPositionAppKit {
+            _ = moveCursor(to: point)
+        }
+        let eventPoint = currentQuartzCursorPosition
+        let mouseUp = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: eventPoint, mouseButton: .left)
+        mouseUp?.flags = []
+        mouseUp?.setIntegerValueField(.eventSourceUserData, value: syntheticDragEventUserData)
+        mouseUp?.post(tap: .cghidEventTap)
+        isLeftDragActive = false
+        print("[Mousetrap] end left drag at appkit=\(point) quartz=\(eventPoint)")
     }
 
     static func doubleClick(at point: CGPoint? = nil) {
@@ -128,7 +166,8 @@ enum MouseController {
     }
 
     static func shouldIgnoreObservedMouseMovement(_ event: CGEvent) -> Bool {
-        if event.getIntegerValueField(.eventSourceUserData) == syntheticHoverEventUserData {
+        let userData = event.getIntegerValueField(.eventSourceUserData)
+        if userData == syntheticHoverEventUserData || userData == syntheticDragEventUserData {
             return true
         }
 
@@ -161,6 +200,15 @@ enum MouseController {
         }
 
         event.setIntegerValueField(.eventSourceUserData, value: syntheticHoverEventUserData)
+        event.post(tap: .cghidEventTap)
+    }
+
+    private static func postSyntheticDragEvent(at point: CGPoint) {
+        guard let event = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: point, mouseButton: .left) else {
+            return
+        }
+
+        event.setIntegerValueField(.eventSourceUserData, value: syntheticDragEventUserData)
         event.post(tap: .cghidEventTap)
     }
 }

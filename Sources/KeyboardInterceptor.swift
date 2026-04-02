@@ -12,6 +12,10 @@ enum InterceptedKey {
     case downArrow
     case leftArrow
     case rightArrow
+    case shiftUpArrow
+    case shiftDownArrow
+    case shiftLeftArrow
+    case shiftRightArrow
 }
 
 @MainActor
@@ -103,13 +107,17 @@ final class KeyboardInterceptor {
         case 49:
             return nonShiftModifiers.isEmpty ? .space : nil
         case 123:
-            return nonShiftModifiers.isEmpty ? .leftArrow : nil
+            guard nonShiftModifiers.isEmpty else { return nil }
+            return flags.contains(.shift) ? .shiftLeftArrow : .leftArrow
         case 124:
-            return nonShiftModifiers.isEmpty ? .rightArrow : nil
+            guard nonShiftModifiers.isEmpty else { return nil }
+            return flags.contains(.shift) ? .shiftRightArrow : .rightArrow
         case 125:
-            return nonShiftModifiers.isEmpty ? .downArrow : nil
+            guard nonShiftModifiers.isEmpty else { return nil }
+            return flags.contains(.shift) ? .shiftDownArrow : .downArrow
         case 126:
-            return nonShiftModifiers.isEmpty ? .upArrow : nil
+            guard nonShiftModifiers.isEmpty else { return nil }
+            return flags.contains(.shift) ? .shiftUpArrow : .upArrow
         default:
             break
         }

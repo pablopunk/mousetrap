@@ -128,7 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .space:
             MouseController.leftClick()
             deactivateOverlay()
-        case .upArrow, .downArrow, .leftArrow, .rightArrow:
+        case .upArrow, .downArrow, .leftArrow, .rightArrow, .shiftUpArrow, .shiftDownArrow, .shiftLeftArrow, .shiftRightArrow:
             startFreeMouseMode(withInitialMove: key)
         case .character(let character):
             let shouldClick = navigator.expectsClickOnNextSelection
@@ -152,8 +152,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             cancelPendingFreeMouseClick()
             deactivateFreeMouseMode()
         case .returnKey, .space:
+            MouseController.endLeftDrag()
             handleFreeMouseReturn()
         case .shiftReturnKey:
+            MouseController.endLeftDrag()
             let clickPoint = MouseController.currentCursorPositionAppKit
             cancelPendingFreeMouseClick()
             deactivateFreeMouseMode()
@@ -161,11 +163,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 MouseController.rightClick(at: clickPoint)
             }
         case .upArrow, .downArrow, .leftArrow, .rightArrow:
+            MouseController.endLeftDrag()
             cancelPendingFreeMouseClick()
             if MouseController.moveFreeCursor(direction: key) {
                 freeMouseIndicatorController.updatePosition(to: MouseController.currentCursorPositionAppKit)
             }
+        case .shiftUpArrow, .shiftDownArrow, .shiftLeftArrow, .shiftRightArrow:
+            cancelPendingFreeMouseClick()
+            MouseController.beginLeftDrag()
+            if MouseController.moveFreeCursor(direction: baseArrowKey(for: key)) {
+                freeMouseIndicatorController.updatePosition(to: MouseController.currentCursorPositionAppKit)
+            }
         case .character, .delete:
+            MouseController.endLeftDrag()
             break
         }
     }
@@ -173,14 +183,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startFreeMouseMode(withInitialMove key: InterceptedKey) {
         freeMouseKeyboardInterceptor.start()
         deactivateOverlay(restoreFocus: true)
-        if MouseController.moveFreeCursor(direction: key) {
-            freeMouseIndicatorController.show(at: MouseController.currentCursorPositionAppKit)
+
+        switch key {
+        case .shiftUpArrow, .shiftDownArrow, .shiftLeftArrow, .shiftRightArrow:
+            MouseController.beginLeftDrag()
+            if MouseController.moveFreeCursor(direction: baseArrowKey(for: key)) {
+                freeMouseIndicatorController.show(at: MouseController.currentCursorPositionAppKit)
+            }
+        default:
+            if MouseController.moveFreeCursor(direction: key) {
+                freeMouseIndicatorController.show(at: MouseController.currentCursorPositionAppKit)
+            }
         }
+
         noteUnsafeActivity()
     }
 
     private func deactivateFreeMouseMode() {
         cancelPendingFreeMouseClick()
+        MouseController.endLeftDrag()
         freeMouseKeyboardInterceptor.stop()
         freeMouseIndicatorController.hide()
 
@@ -225,6 +246,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateOverlayAndCursor() {
         overlayController.update(state: navigator.state)
         MouseController.moveCursor(to: navigator.state.currentRect.center)
+    }
+
+    private func baseArrowKey(for key: InterceptedKey) -> InterceptedKey {
+        switch key {
+        case .shiftUpArrow:
+            .upArrow
+        case .shiftDownArrow:
+            .downArrow
+        case .shiftLeftArrow:
+            .leftArrow
+        case .shiftRightArrow:
+            .rightArrow
+        default:
+            key
+        }
     }
 
     private func noteUnsafeActivity() {

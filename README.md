@@ -28,7 +28,7 @@ Or grab the latest release from the [releases page](https://github.com/pablopunk
 
 - ⚡ Native, lightweight, fast. Lives in your menu bar.
 - 💅 Custom keyboard shortcuts.
-- 🖱️ Free mouse mode. Use your arrow keys to move the cursor and click with as much precision as you want.
+- 🖱️ Free mouse mode. Use your arrow keys to move the cursor, click, and drag with as much precision as you want.
 - 👨‍💻 Free and open source.
 
 ## Usage
@@ -37,7 +37,7 @@ Or grab the latest release from the [releases page](https://github.com/pablopunk
 - Each key will move you to that key's cell, and will divide it again.
 - Each key press will move the mouse to the center of the cell.
 - There are 3 nested grids you can hit your target.
-- At any point you can hit any arrow key to move the mouse freely, and hit Enter to click.
+- At any point you can hit any arrow key to move the mouse freely, hit Enter to click, or use Shift to drag.
 
 ## Development
 

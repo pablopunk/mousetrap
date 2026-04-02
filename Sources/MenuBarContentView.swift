@@ -174,7 +174,7 @@ struct ShortcutRowView: View {
                     }
                 }
 
-                Text("↩ to click (twice to double click)\n⇧↩ to right click")
+                Text("↩ to click (twice to double click)\n⇧↩ to right click · ⇧←↑↓→ to drag")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
