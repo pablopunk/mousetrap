@@ -28,6 +28,7 @@ Or grab the latest release from the [releases page](https://github.com/pablopunk
 
 - ⚡ Native, lightweight, fast. Lives in your menu bar.
 - 💅 Custom keyboard shortcuts.
+- 🌐 Real keys, read from your keyboard.
 - 🖱️ Free mouse mode. Use your arrow keys to move the cursor, click, and drag with as much precision as you want.
 - 👨‍💻 Free and open source.
 
