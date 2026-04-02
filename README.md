@@ -22,6 +22,23 @@ https://github.com/user-attachments/assets/1eb0b6e0-582b-4748-bb40-ceda9cb46842
 brew install pablopunk/brew/mousetrap
 ```
 
+Or grab the latest release from the [releases page](https://github.com/pablopunk/mousetrap/releases).
+
+## Features
+
+- ⚡ Native, lightweight, fast. Lives in your menu bar.
+- 💅 Custom keyboard shortcuts.
+- 🖱️ Free mouse mode. Use your arrow keys to move the cursor and click with as much precision as you want.
+- 👨‍💻 Free and open source.
+
+## Usage
+
+- Use any keyboard shortcut to trigger the fullscreen grid.
+- Each key will move you to that key's cell, and will divide it again.
+- Each key press will move the mouse to the center of the cell.
+- There are 3 nested grids you can hit your target.
+- At any point you can hit any arrow key to move the mouse freely, and hit Enter to click.
+
 ## Development
 
 ```bash
