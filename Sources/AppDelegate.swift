@@ -146,25 +146,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .upArrow, .downArrow, .leftArrow, .rightArrow, .shiftUpArrow, .shiftDownArrow, .shiftLeftArrow, .shiftRightArrow:
             startFreeMouseMode(withInitialMove: key)
         case .character(let character):
-            if navigator.expectsClickOnNextSelection {
-                handleFinalClickKeyDown(character)
-                return
-            }
-
-            guard navigator.select(character) else { return }
-            updateOverlayAndCursor()
+            handleGridSelectionKeyDown(character)
         }
     }
 
     private func handleInterceptedKeyUp(_ key: InterceptedKey) {
         noteUnsafeActivity()
 
-        guard navigator.expectsClickOnNextSelection else { return }
         guard case .character(let character) = key else { return }
-        handleFinalClickKeyUp(character)
+        handleGridSelectionKeyUp(character)
     }
 
-    private func handleFinalClickKeyDown(_ character: Character) {
+    private func handleGridSelectionKeyDown(_ character: Character) {
         guard navigator.state.layout.rect(for: character, in: navigator.state.currentRect) != nil else { return }
 
         cancelPendingFinalClickCommit()
@@ -172,10 +165,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         finalClickSessionKeys.insert(character)
         finalClickKeyOrder.removeAll(where: { $0 == character })
         finalClickKeyOrder.append(character)
-        updateFinalClickPreview()
+        updateGridSelectionPreview()
     }
 
-    private func handleFinalClickKeyUp(_ character: Character) {
+    private func handleGridSelectionKeyUp(_ character: Character) {
         guard finalClickHeldKeys.contains(character) || finalClickSessionKeys.contains(character) else { return }
 
         finalClickHeldKeys.remove(character)
@@ -186,10 +179,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         guard finalClickHeldKeys.isEmpty else { return }
-        scheduleFinalClickCommit()
+        scheduleGridSelectionCommit()
     }
 
-    private func updateFinalClickPreview() {
+    private func updateGridSelectionPreview() {
         let selection = bestFinalClickSelection(from: finalClickSessionKeys)
         finalClickPreviewKeys = selection?.keys ?? []
         finalClickPreviewPoint = selection?.target
@@ -200,17 +193,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    private func scheduleFinalClickCommit() {
-        guard let target = finalClickPreviewPoint else {
+    private func scheduleGridSelectionCommit() {
+        guard let selection = bestFinalClickSelection(from: finalClickSessionKeys) else {
             resetFinalClickInteraction()
             return
         }
 
+        let shouldClick = navigator.expectsClickOnNextSelection
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingFinalClickCommitWorkItem = nil
-            MouseController.leftClick(at: target)
-            self.deactivateOverlay()
+
+            if shouldClick {
+                MouseController.leftClick(at: selection.target)
+                self.deactivateOverlay()
+            } else {
+                self.navigator.select(rect: self.refinementRect(for: selection))
+                self.updateOverlayAndCursor()
+            }
         }
 
         pendingFinalClickCommitWorkItem = workItem
@@ -231,7 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlayController.updateInteraction(pressedKeys: [], previewKeys: [], previewPoint: nil)
     }
 
-    private func bestFinalClickSelection(from keys: Set<Character>) -> (keys: Set<Character>, target: CGPoint)? {
+    private func bestFinalClickSelection(from keys: Set<Character>) -> (keys: Set<Character>, rect: CGRect, target: CGPoint, baseCellSize: CGSize)? {
         guard !keys.isEmpty else { return nil }
 
         let layout = navigator.state.layout
@@ -256,6 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 for minColumn in columns {
                     for maxColumn in columns where maxColumn >= minColumn {
                         var candidateKeys = Set<Character>()
+                        var candidateRects = [CGRect]()
                         var unionRect: CGRect?
                         var isValid = true
 
@@ -269,6 +270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                 }
 
                                 candidateKeys.insert(key)
+                                candidateRects.append(rect)
                                 unionRect = unionRect.map { $0.union(rect) } ?? rect
                             }
 
@@ -296,7 +298,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard !bestKeys.isEmpty, let bestRect else { return nil }
-        return (keys: bestKeys, target: bestRect.center)
+
+        let cellRects = bestKeys.compactMap { layout.rect(for: $0, in: bounds) }
+        let averageWidth = cellRects.reduce(CGFloat.zero) { $0 + $1.width } / CGFloat(max(cellRects.count, 1))
+        let averageHeight = cellRects.reduce(CGFloat.zero) { $0 + $1.height } / CGFloat(max(cellRects.count, 1))
+        let baseCellSize = CGSize(width: averageWidth, height: averageHeight)
+
+        return (keys: bestKeys, rect: bestRect, target: bestRect.center, baseCellSize: baseCellSize)
+    }
+
+    private func refinementRect(for selection: (keys: Set<Character>, rect: CGRect, target: CGPoint, baseCellSize: CGSize)) -> CGRect {
+        let bounds = navigator.state.currentRect
+        let width = min(selection.baseCellSize.width, bounds.width)
+        let height = min(selection.baseCellSize.height, bounds.height)
+
+        let minX = bounds.minX
+        let maxX = bounds.maxX - width
+        let minY = bounds.minY
+        let maxY = bounds.maxY - height
+
+        let originX = min(max(selection.target.x - width / 2, minX), maxX)
+        let originY = min(max(selection.target.y - height / 2, minY), maxY)
+
+        return CGRect(x: originX, y: originY, width: width, height: height)
     }
 
     private func handleFreeMouseKey(_ key: InterceptedKey) {

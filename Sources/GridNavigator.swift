@@ -117,11 +117,16 @@ final class GridNavigator {
             return false
         }
 
+        select(rect: selectedRect)
+        return true
+    }
+
+    func select(rect: CGRect) {
         var history = state.history
         history.append(state.currentRect)
 
         let nextDepth = history.count
-        let nextRect = expandedRectIfNeeded(selectedRect, forDepth: nextDepth)
+        let nextRect = expandedRectIfNeeded(rect, forDepth: nextDepth)
 
         state = GridState(
             screenRect: state.screenRect,
@@ -129,7 +134,6 @@ final class GridNavigator {
             history: history,
             layout: layout(forDepth: nextDepth)
         )
-        return true
     }
 
     func back() {
