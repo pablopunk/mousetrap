@@ -28,6 +28,7 @@ final class OverlayWindowController {
     }
 
     func hide() {
+        overlayView?.stopPulse()
         window?.orderOut(nil)
     }
 

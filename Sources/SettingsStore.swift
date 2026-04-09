@@ -8,6 +8,9 @@ enum SettingsKeys {
     static let defaultFreeMouseStep: Double = 20
     static let unsafeStateTimeoutSeconds = "unsafeStateTimeoutSeconds"
     static let defaultUnsafeStateTimeoutSeconds = 10
+    static let pulseGrid1 = "pulseGrid1"
+    static let pulseGrid2 = "pulseGrid2"
+    static let pulseGrid3 = "pulseGrid3"
 }
 
 @MainActor
@@ -29,6 +32,10 @@ final class SettingsStore: ObservableObject {
 
         if UserDefaults.standard.object(forKey: SettingsKeys.unsafeStateTimeoutSeconds) == nil {
             UserDefaults.standard.set(SettingsKeys.defaultUnsafeStateTimeoutSeconds, forKey: SettingsKeys.unsafeStateTimeoutSeconds)
+        }
+
+        if UserDefaults.standard.object(forKey: SettingsKeys.pulseGrid3) == nil {
+            UserDefaults.standard.set(true, forKey: SettingsKeys.pulseGrid3)
         }
     }
 

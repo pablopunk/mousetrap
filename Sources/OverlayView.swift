@@ -1,10 +1,20 @@
 import AppKit
+import QuartzCore
 
 @MainActor
 final class OverlayView: NSView {
+    private static let pulsePeriod: CFTimeInterval = 1.5
+
     var state: GridState = GridState(screenRect: .zero, currentRect: .zero, history: [], layout: .full) {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            updatePulse()
+        }
     }
+
+    private var pulseTimer: Timer?
+    private var pulseStartTime: CFTimeInterval = 0
+    private var pulseOpacity: CGFloat = 1.0
 
     override var isOpaque: Bool { false }
 
@@ -22,21 +32,21 @@ final class OverlayView: NSView {
         )
 
         let isFinalClickLayout = state.layout.id == "finalClick"
-        let currentRectOverlayOpacity: CGFloat = isFinalClickLayout ? 0.03 : 0.10
+        let currentRectOverlayOpacity: CGFloat = (isFinalClickLayout ? 0.03 : 0.10) * pulseOpacity
         context.setFillColor(NSColor.black.withAlphaComponent(currentRectOverlayOpacity).cgColor)
         context.fill(localCurrentRect)
 
-        drawKeys(in: localCurrentRect)
+        drawKeys(in: localCurrentRect, opacity: pulseOpacity)
     }
 
-    private func drawKeys(in rect: CGRect) {
+    private func drawKeys(in rect: CGRect, opacity: CGFloat) {
         let rows = state.layout.rows
         let rowHeight = rect.height / CGFloat(rows.count)
         let cellInset: CGFloat = state.history.isEmpty ? 4 : 0
         let isFinalClickLayout = state.layout.id == "finalClick"
-        let cellFillOpacity: CGFloat = isFinalClickLayout ? 0.10 : 0.08
-        let cellStrokeOpacity: CGFloat = isFinalClickLayout ? 0.24 : 0.20
-        let textOpacity: CGFloat = isFinalClickLayout ? 0.80 : 0.94
+        let cellFillOpacity: CGFloat = (isFinalClickLayout ? 0.10 : 0.08) * opacity
+        let cellStrokeOpacity: CGFloat = (isFinalClickLayout ? 0.24 : 0.20) * opacity
+        let textOpacity: CGFloat = (isFinalClickLayout ? 0.80 : 0.94) * opacity
         let fontScale: CGFloat = isFinalClickLayout ? 0.10 : 0.32
 
         for (rowIndex, row) in rows.enumerated() {
@@ -90,5 +100,47 @@ final class OverlayView: NSView {
         ]
         let hintText = hint as NSString
         hintText.draw(in: CGRect(x: 24, y: 24, width: bounds.width - 48, height: 24), withAttributes: attrs)
+    }
+
+    // MARK: - Pulse animation
+
+    private var currentGridLevel: Int {
+        min(state.history.count + 1, 3)
+    }
+
+    private var shouldPulse: Bool {
+        switch currentGridLevel {
+        case 1: return UserDefaults.standard.bool(forKey: SettingsKeys.pulseGrid1)
+        case 2: return UserDefaults.standard.bool(forKey: SettingsKeys.pulseGrid2)
+        default: return UserDefaults.standard.bool(forKey: SettingsKeys.pulseGrid3)
+        }
+    }
+
+    private func updatePulse() {
+        if shouldPulse {
+            startPulse()
+        } else {
+            stopPulse()
+        }
+    }
+
+    private func startPulse() {
+        guard pulseTimer == nil else { return }
+        pulseStartTime = CACurrentMediaTime()
+        pulseTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                let elapsed = CACurrentMediaTime() - self.pulseStartTime
+                self.pulseOpacity = CGFloat((cos(elapsed * 2.0 * .pi / Self.pulsePeriod) + 1.0) / 2.0)
+                self.needsDisplay = true
+            }
+        }
+    }
+
+    func stopPulse() {
+        pulseTimer?.invalidate()
+        pulseTimer = nil
+        pulseOpacity = 1.0
+        needsDisplay = true
     }
 }

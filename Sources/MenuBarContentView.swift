@@ -91,6 +91,29 @@ struct LaunchAtLoginRow: View {
     }
 }
 
+private struct GridLevelPill: View {
+    let label: String
+    @AppStorage var isOn: Bool
+
+    init(label: String, key: String, defaultValue: Bool = false) {
+        self.label = label
+        self._isOn = AppStorage(wrappedValue: defaultValue, key)
+    }
+
+    var body: some View {
+        Button { isOn.toggle() } label: {
+            Text(label)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(isOn ? .white : .secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(isOn ? Color.accentColor : Color.secondary.opacity(0.15))
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct ShortcutRowView: View {
     @AppStorage(SettingsKeys.freeMouseStep) private var freeMouseStep = SettingsKeys.defaultFreeMouseStep
     @AppStorage(SettingsKeys.unsafeStateTimeoutSeconds) private var unsafeStateTimeoutSeconds = SettingsKeys.defaultUnsafeStateTimeoutSeconds
@@ -175,6 +198,33 @@ struct ShortcutRowView: View {
                 }
 
                 Text("↩ to click (twice to double click)\n⇧↩ to right click · ⇧←↑↓→ to drag")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 28)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.tint)
+                        .frame(width: 18)
+
+                    Text("Pulse fade")
+                        .font(.system(size: 13, weight: .medium))
+
+                    Spacer(minLength: 0)
+
+                    HStack(spacing: 6) {
+                        GridLevelPill(label: "1st", key: SettingsKeys.pulseGrid1)
+                        GridLevelPill(label: "2nd", key: SettingsKeys.pulseGrid2)
+                        GridLevelPill(label: "3rd", key: SettingsKeys.pulseGrid3, defaultValue: true)
+                    }
+                }
+
+                Text("Fade the grid to reveal content behind it")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
