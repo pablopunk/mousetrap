@@ -224,7 +224,7 @@ struct ShortcutRowView: View {
                     }
                 }
 
-                Text("Pulse the grid to reveal content behind it")
+                Text("Fade in/out the grid to reveal content behind it")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
