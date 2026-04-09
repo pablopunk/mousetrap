@@ -28,17 +28,22 @@ Or grab the latest release from the [releases page](https://github.com/pablopunk
 
 - ⚡ Native, lightweight, fast. Lives in your menu bar.
 - 💅 Custom keyboard shortcuts.
-- 🌐 Real keys, read from your keyboard.
-- 🖱️ Free mouse mode. Use your arrow keys to move the cursor, click, and drag with as much precision as you want.
+- 🌐 Real keys, read from your current keyboard layout.
+- 🎯 Three-step nested grid for fast, precise targeting.
+- ✨ Multi-key chord targeting: press adjacent keys like `zx` or `aszx` to aim between cells or at shared corners.
+- 🖱️ Free mouse mode. Use your arrow keys to move the cursor, click, double-click, right-click, and drag with as much precision as you want.
+- 👀 Optional pulse reveal mode to fade the grid and better see what's underneath.
 - 👨‍💻 Free and open source.
 
 ## Usage
 
-- Use any keyboard shortcut to trigger the fullscreen grid.
-- Each key will move you to that key's cell, and will divide it again.
-- Each key press will move the mouse to the center of the cell.
-- There are 3 nested grids you can hit your target.
-- At any point you can hit any arrow key to move the mouse freely, hit Enter to click, or use Shift to drag.
+- Use your keyboard shortcut to trigger the fullscreen grid.
+- The grid follows your real keyboard layout.
+- There are 3 nested grids to quickly narrow down the target.
+- Press a key to focus that cell and continue refining.
+- You can also press adjacent keys together, like `zx` or `aszx`, to target the midpoint or corner between cells.
+- Chords work on every grid level: on earlier grids they recenter the next refinement, and on the final grid they click that exact point.
+- At any point you can hit any arrow key to move the mouse freely, hit Enter to click, hit Enter twice to double-click, use Shift+Enter to right-click, or use Shift+arrow keys to drag.
 
 ## Development
 
