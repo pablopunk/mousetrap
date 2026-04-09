@@ -212,7 +212,7 @@ struct ShortcutRowView: View {
                         .foregroundStyle(.tint)
                         .frame(width: 18)
 
-                    Text("Pulse fade")
+                    Text("High contrast pulse")
                         .font(.system(size: 13, weight: .medium))
 
                     Spacer(minLength: 0)
@@ -224,7 +224,7 @@ struct ShortcutRowView: View {
                     }
                 }
 
-                Text("Fade the grid to reveal content behind it")
+                Text("Pulse the grid to reveal content behind it")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
