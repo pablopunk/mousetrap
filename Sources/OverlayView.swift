@@ -56,9 +56,12 @@ final class OverlayView: NSView {
         let rowHeight = rect.height / CGFloat(rows.count)
         let cellInset: CGFloat = state.history.isEmpty ? 4 : 0
         let isFinalClickLayout = state.layout.id == "finalClick"
-        let cellFillOpacity: CGFloat = isPulsing ? opacity : (isFinalClickLayout ? 0.10 : 0.08) * opacity
-        let cellStrokeOpacity: CGFloat = isPulsing ? opacity : (isFinalClickLayout ? 0.24 : 0.20) * opacity
-        let textOpacity: CGFloat = opacity
+        let baseFill: CGFloat = isFinalClickLayout ? 0.10 : 0.08
+        let baseStroke: CGFloat = isFinalClickLayout ? 0.24 : 0.20
+        let baseText: CGFloat = isFinalClickLayout ? 0.80 : 0.94
+        let cellFillOpacity: CGFloat = (isPulsing ? 0.82 : baseFill) * opacity
+        let cellStrokeOpacity: CGFloat = (isPulsing ? 0.88 : baseStroke) * opacity
+        let textOpacity: CGFloat = (isPulsing ? 1.0 : baseText) * opacity
         let fontScale: CGFloat = isFinalClickLayout ? 0.10 : 0.32
 
         for (rowIndex, row) in rows.enumerated() {
@@ -78,22 +81,28 @@ final class OverlayView: NSView {
                 let accentColor = NSColor.controlAccentColor
 
                 let rounded = NSBezierPath(roundedRect: cell, xRadius: 8, yRadius: 8)
-                if isPreviewed {
-                    accentColor.withAlphaComponent((isPressed ? 0.75 : 0.55) * opacity).setFill()
-                } else if isPulsing {
-                    NSColor.white.withAlphaComponent(cellFillOpacity).setFill()
-                } else {
-                    NSColor.white.withAlphaComponent(cellFillOpacity).setFill()
-                }
-                rounded.fill()
+                let fillColor: NSColor
+                let strokeColor: NSColor
+                let strokeWidth: CGFloat
 
                 if isPreviewed {
-                    accentColor.withAlphaComponent((isPressed ? 1.0 : 0.85) * opacity).setStroke()
-                    rounded.lineWidth = isPressed ? 2 : 1.5
+                    fillColor = accentColor.withAlphaComponent((isPressed ? 0.42 : 0.22) * opacity)
+                    strokeColor = accentColor.withAlphaComponent((isPressed ? 0.92 : 0.70) * opacity)
+                    strokeWidth = isPressed ? 2 : 1.5
+                } else if isPulsing {
+                    fillColor = NSColor.black.withAlphaComponent(cellFillOpacity)
+                    strokeColor = NSColor.white.withAlphaComponent(cellStrokeOpacity)
+                    strokeWidth = 1
                 } else {
-                    NSColor.white.withAlphaComponent(cellStrokeOpacity).setStroke()
-                    rounded.lineWidth = 1
+                    fillColor = NSColor.white.withAlphaComponent(cellFillOpacity)
+                    strokeColor = NSColor.white.withAlphaComponent(cellStrokeOpacity)
+                    strokeWidth = 1
                 }
+
+                fillColor.setFill()
+                rounded.fill()
+                strokeColor.setStroke()
+                rounded.lineWidth = strokeWidth
                 rounded.stroke()
 
                 let paragraph = NSMutableParagraphStyle()
@@ -103,8 +112,6 @@ final class OverlayView: NSView {
                 let textColor: NSColor
                 if isPreviewed {
                     textColor = accentColor.blended(withFraction: 0.15, of: .white) ?? accentColor
-                } else if isPulsing {
-                    textColor = .black
                 } else {
                     textColor = .white
                 }
