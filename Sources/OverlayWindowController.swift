@@ -18,6 +18,9 @@ final class OverlayWindowController {
         window?.setFrame(screen.frame, display: true)
         window?.onKey = onKey
         overlayView?.state = state
+        overlayView?.pressedKeys = []
+        overlayView?.previewKeys = []
+        overlayView?.previewPoint = nil
         overlayView?.frame = CGRect(origin: .zero, size: screen.frame.size)
         window?.orderFrontRegardless()
     }
@@ -27,8 +30,18 @@ final class OverlayWindowController {
         overlayView?.needsDisplay = true
     }
 
+    func updateInteraction(pressedKeys: Set<Character>, previewKeys: Set<Character>, previewPoint: CGPoint?) {
+        overlayView?.pressedKeys = pressedKeys
+        overlayView?.previewKeys = previewKeys
+        overlayView?.previewPoint = previewPoint
+        overlayView?.needsDisplay = true
+    }
+
     func hide() {
         overlayView?.stopPulse()
+        overlayView?.pressedKeys = []
+        overlayView?.previewKeys = []
+        overlayView?.previewPoint = nil
         window?.orderOut(nil)
     }
 

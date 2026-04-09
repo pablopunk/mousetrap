@@ -21,6 +21,7 @@ enum InterceptedKey {
 @MainActor
 final class KeyboardInterceptor {
     var onKey: ((InterceptedKey) -> Void)?
+    var onKeyUp: ((InterceptedKey) -> Void)?
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -33,6 +34,7 @@ final class KeyboardInterceptor {
         guard eventTap == nil else { return }
 
         let mask = (1 << CGEventType.keyDown.rawValue)
+            | (1 << CGEventType.keyUp.rawValue)
             | (1 << CGEventType.tapDisabledByTimeout.rawValue)
             | (1 << CGEventType.tapDisabledByUserInput.rawValue)
 
@@ -83,12 +85,21 @@ final class KeyboardInterceptor {
             return Unmanaged.passUnretained(event)
         }
 
-        guard type == .keyDown, let key = map(event) else {
+        guard (type == .keyDown || type == .keyUp), let key = map(event) else {
             return Unmanaged.passUnretained(event)
         }
 
+        if type == .keyDown, event.getIntegerValueField(.keyboardEventAutorepeat) == 1 {
+            return nil
+        }
+
         DispatchQueue.main.async { [weak self] in
-            self?.onKey?(key)
+            guard let self else { return }
+            if type == .keyDown {
+                self.onKey?(key)
+            } else {
+                self.onKeyUp?(key)
+            }
         }
         return nil
     }

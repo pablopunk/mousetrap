@@ -53,6 +53,22 @@ struct GridLayout: Equatable {
 
         return nil
     }
+
+    func position(for key: Character) -> (row: Int, column: Int)? {
+        let lowercased = Character(String(key).lowercased())
+
+        for (rowIndex, row) in rows.enumerated() {
+            guard let columnIndex = row.firstIndex(of: lowercased) else { continue }
+            return (row: rowIndex, column: columnIndex)
+        }
+
+        return nil
+    }
+
+    func key(atRow row: Int, column: Int) -> Character? {
+        guard rows.indices.contains(row), rows[row].indices.contains(column) else { return nil }
+        return rows[row][column]
+    }
 }
 
 struct GridState {

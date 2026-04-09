@@ -19,11 +19,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingFreeMouseClickWorkItem: DispatchWorkItem?
     private var pendingFreeMouseClickPoint: CGPoint?
     private let freeMouseDoubleTapWindow: TimeInterval = 0.25
+    private let finalClickChordGracePeriod: TimeInterval = 0.08
+    private var finalClickHeldKeys = Set<Character>()
+    private var finalClickSessionKeys = Set<Character>()
+    private var finalClickKeyOrder = [Character]()
+    private var pendingFinalClickCommitWorkItem: DispatchWorkItem?
+    private var finalClickPreviewKeys = Set<Character>()
+    private var finalClickPreviewPoint: CGPoint?
     private var unsafeStateTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         overlayKeyboardInterceptor.onKey = { [weak self] key in
             self?.handleInterceptedKey(key)
+        }
+        overlayKeyboardInterceptor.onKeyUp = { [weak self] key in
+            self?.handleInterceptedKeyUp(key)
         }
         overlayController.onKey = { [weak self] key in
             self?.handleInterceptedKey(key)
@@ -85,11 +95,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let screen else { return }
 
         navigator.reset(to: screen.frame)
+        resetFinalClickInteraction()
         overlayKeyboardInterceptor.start()
         overlayController.show(on: screen, state: navigator.state)
     }
 
     private func deactivateOverlay(restoreFocus: Bool = true) {
+        cancelPendingFinalClickCommit()
+        resetFinalClickInteraction()
         overlayKeyboardInterceptor.stop()
         overlayController.hide()
 
@@ -117,6 +130,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .escape:
             deactivateOverlay()
         case .delete:
+            cancelPendingFinalClickCommit()
+            resetFinalClickInteraction()
             navigator.back()
             updateOverlayAndCursor()
         case .returnKey:
@@ -131,17 +146,157 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .upArrow, .downArrow, .leftArrow, .rightArrow, .shiftUpArrow, .shiftDownArrow, .shiftLeftArrow, .shiftRightArrow:
             startFreeMouseMode(withInitialMove: key)
         case .character(let character):
-            let shouldClick = navigator.expectsClickOnNextSelection
+            if navigator.expectsClickOnNextSelection {
+                handleFinalClickKeyDown(character)
+                return
+            }
+
             guard navigator.select(character) else { return }
-            if shouldClick {
-                let target = navigator.state.currentRect.center
-                _ = MouseController.moveCursor(to: target)
-                MouseController.leftClick(at: target)
-                deactivateOverlay()
-            } else {
-                updateOverlayAndCursor()
+            updateOverlayAndCursor()
+        }
+    }
+
+    private func handleInterceptedKeyUp(_ key: InterceptedKey) {
+        noteUnsafeActivity()
+
+        guard navigator.expectsClickOnNextSelection else { return }
+        guard case .character(let character) = key else { return }
+        handleFinalClickKeyUp(character)
+    }
+
+    private func handleFinalClickKeyDown(_ character: Character) {
+        guard navigator.state.layout.rect(for: character, in: navigator.state.currentRect) != nil else { return }
+
+        cancelPendingFinalClickCommit()
+        finalClickHeldKeys.insert(character)
+        finalClickSessionKeys.insert(character)
+        finalClickKeyOrder.removeAll(where: { $0 == character })
+        finalClickKeyOrder.append(character)
+        updateFinalClickPreview()
+    }
+
+    private func handleFinalClickKeyUp(_ character: Character) {
+        guard finalClickHeldKeys.contains(character) || finalClickSessionKeys.contains(character) else { return }
+
+        finalClickHeldKeys.remove(character)
+        overlayController.updateInteraction(
+            pressedKeys: finalClickHeldKeys,
+            previewKeys: finalClickPreviewKeys,
+            previewPoint: finalClickPreviewPoint
+        )
+
+        guard finalClickHeldKeys.isEmpty else { return }
+        scheduleFinalClickCommit()
+    }
+
+    private func updateFinalClickPreview() {
+        let selection = bestFinalClickSelection(from: finalClickSessionKeys)
+        finalClickPreviewKeys = selection?.keys ?? []
+        finalClickPreviewPoint = selection?.target
+        overlayController.updateInteraction(
+            pressedKeys: finalClickHeldKeys,
+            previewKeys: finalClickPreviewKeys,
+            previewPoint: finalClickPreviewPoint
+        )
+    }
+
+    private func scheduleFinalClickCommit() {
+        guard let target = finalClickPreviewPoint else {
+            resetFinalClickInteraction()
+            return
+        }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingFinalClickCommitWorkItem = nil
+            MouseController.leftClick(at: target)
+            self.deactivateOverlay()
+        }
+
+        pendingFinalClickCommitWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + finalClickChordGracePeriod, execute: workItem)
+    }
+
+    private func cancelPendingFinalClickCommit() {
+        pendingFinalClickCommitWorkItem?.cancel()
+        pendingFinalClickCommitWorkItem = nil
+    }
+
+    private func resetFinalClickInteraction() {
+        finalClickHeldKeys = []
+        finalClickSessionKeys = []
+        finalClickKeyOrder = []
+        finalClickPreviewKeys = []
+        finalClickPreviewPoint = nil
+        overlayController.updateInteraction(pressedKeys: [], previewKeys: [], previewPoint: nil)
+    }
+
+    private func bestFinalClickSelection(from keys: Set<Character>) -> (keys: Set<Character>, target: CGPoint)? {
+        guard !keys.isEmpty else { return nil }
+
+        let layout = navigator.state.layout
+        let bounds = navigator.state.currentRect
+        let keyOrderIndex = Dictionary(uniqueKeysWithValues: finalClickKeyOrder.enumerated().map { ($0.element, $0.offset) })
+        let latestKey = finalClickKeyOrder.last
+
+        var bestKeys = Set<Character>()
+        var bestRect: CGRect?
+        var bestScore = (-1, -1, -1)
+
+        let positions = keys.compactMap { key -> (Character, Int, Int)? in
+            guard let position = layout.position(for: key) else { return nil }
+            return (key, position.row, position.column)
+        }
+
+        let rows = Array(Set(positions.map { $0.1 })).sorted()
+        let columns = Array(Set(positions.map { $0.2 })).sorted()
+
+        for minRow in rows {
+            for maxRow in rows where maxRow >= minRow {
+                for minColumn in columns {
+                    for maxColumn in columns where maxColumn >= minColumn {
+                        var candidateKeys = Set<Character>()
+                        var unionRect: CGRect?
+                        var isValid = true
+
+                        for row in minRow...maxRow {
+                            for column in minColumn...maxColumn {
+                                guard let key = layout.key(atRow: row, column: column),
+                                      keys.contains(key),
+                                      let rect = layout.rect(for: key, in: bounds) else {
+                                    isValid = false
+                                    break
+                                }
+
+                                candidateKeys.insert(key)
+                                unionRect = unionRect.map { $0.union(rect) } ?? rect
+                            }
+
+                            if !isValid {
+                                break
+                            }
+                        }
+
+                        guard isValid, let unionRect else { continue }
+
+                        let containsLatestKey = latestKey.map { candidateKeys.contains($0) } == true ? 1 : 0
+                        let recencyScore = candidateKeys.reduce(0) { partialResult, key in
+                            partialResult + (keyOrderIndex[key] ?? 0)
+                        }
+                        let score = (candidateKeys.count, containsLatestKey, recencyScore)
+
+                        if score > bestScore {
+                            bestScore = score
+                            bestKeys = candidateKeys
+                            bestRect = unionRect
+                        }
+                    }
+                }
             }
         }
+
+        guard !bestKeys.isEmpty, let bestRect else { return nil }
+        return (keys: bestKeys, target: bestRect.center)
     }
 
     private func handleFreeMouseKey(_ key: InterceptedKey) {
@@ -244,6 +399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateOverlayAndCursor() {
+        resetFinalClickInteraction()
         overlayController.update(state: navigator.state)
         MouseController.moveCursor(to: navigator.state.currentRect.center)
     }
