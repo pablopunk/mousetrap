@@ -186,7 +186,7 @@ struct ShortcutRowView: View {
                     Spacer(minLength: 0)
 
                     HStack(spacing: 8) {
-                        Slider(value: $freeMouseStep, in: 4...80, step: 2)
+                        Slider(value: $freeMouseStep, in: 1..20, step: 1)
                             .controlSize(.small)
                             .frame(width: 90)
 
