@@ -234,77 +234,146 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func bestFinalClickSelection(from keys: Set<Character>) -> (keys: Set<Character>, rect: CGRect, target: CGPoint, baseCellSize: CGSize)? {
         guard !keys.isEmpty else { return nil }
 
+        struct KeyInfo {
+            let key: Character
+            let row: Int
+            let column: Int
+            let rect: CGRect
+        }
+
+        struct Candidate {
+            let keys: Set<Character>
+            let rect: CGRect
+            let target: CGPoint
+            let baseCellSize: CGSize
+            let precision: Int
+        }
+
         let layout = navigator.state.layout
         let bounds = navigator.state.currentRect
         let keyOrderIndex = Dictionary(uniqueKeysWithValues: finalClickKeyOrder.enumerated().map { ($0.element, $0.offset) })
         let latestKey = finalClickKeyOrder.last
 
-        var bestKeys = Set<Character>()
-        var bestRect: CGRect?
-        var bestScore = (-1, -1, -1)
+        let keyInfos = keys.compactMap { key -> KeyInfo? in
+            guard let position = layout.position(for: key),
+                  let rect = layout.rect(for: key, in: bounds) else {
+                return nil
+            }
 
-        let positions = keys.compactMap { key -> (Character, Int, Int)? in
-            guard let position = layout.position(for: key) else { return nil }
-            return (key, position.row, position.column)
+            return KeyInfo(key: key, row: position.row, column: position.column, rect: rect)
         }
 
-        let rows = Array(Set(positions.map { $0.1 })).sorted()
-        let columns = Array(Set(positions.map { $0.2 })).sorted()
+        guard !keyInfos.isEmpty else { return nil }
 
-        for minRow in rows {
-            for maxRow in rows where maxRow >= minRow {
-                for minColumn in columns {
-                    for maxColumn in columns where maxColumn >= minColumn {
-                        var candidateKeys = Set<Character>()
-                        var candidateRects = [CGRect]()
-                        var unionRect: CGRect?
-                        var isValid = true
+        let previewKeys = Set(keyInfos.map(\.key))
 
-                        for row in minRow...maxRow {
-                            for column in minColumn...maxColumn {
-                                guard let key = layout.key(atRow: row, column: column),
-                                      keys.contains(key),
-                                      let rect = layout.rect(for: key, in: bounds) else {
-                                    isValid = false
-                                    break
-                                }
+        func midpoint(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
+            (a + b) / 2
+        }
 
-                                candidateKeys.insert(key)
-                                candidateRects.append(rect)
-                                unionRect = unionRect.map { $0.union(rect) } ?? rect
-                            }
+        func overlapMidpoint(minA: CGFloat, maxA: CGFloat, minB: CGFloat, maxB: CGFloat) -> CGFloat {
+            midpoint(max(minA, minB), min(maxA, maxB))
+        }
 
-                            if !isValid {
-                                break
-                            }
-                        }
+        func candidateTarget(first: KeyInfo, second: KeyInfo) -> (CGPoint, Int)? {
+            let rowDelta = second.row - first.row
+            let columnDelta = second.column - first.column
 
-                        guard isValid, let unionRect else { continue }
+            if rowDelta == 0, abs(columnDelta) == 1 {
+                let leftRect = first.column < second.column ? first.rect : second.rect
+                let rightRect = first.column < second.column ? second.rect : first.rect
+                return (
+                    CGPoint(
+                        x: midpoint(leftRect.maxX, rightRect.minX),
+                        y: overlapMidpoint(minA: leftRect.minY, maxA: leftRect.maxY, minB: rightRect.minY, maxB: rightRect.maxY)
+                    ),
+                    2
+                )
+            }
 
-                        let containsLatestKey = latestKey.map { candidateKeys.contains($0) } == true ? 1 : 0
-                        let recencyScore = candidateKeys.reduce(0) { partialResult, key in
-                            partialResult + (keyOrderIndex[key] ?? 0)
-                        }
-                        let score = (candidateKeys.count, containsLatestKey, recencyScore)
+            if columnDelta == 0, abs(rowDelta) == 1 {
+                let lowerRect = first.row > second.row ? first.rect : second.rect
+                let upperRect = first.row > second.row ? second.rect : first.rect
+                return (
+                    CGPoint(
+                        x: overlapMidpoint(minA: lowerRect.minX, maxA: lowerRect.maxX, minB: upperRect.minX, maxB: upperRect.maxX),
+                        y: midpoint(lowerRect.maxY, upperRect.minY)
+                    ),
+                    2
+                )
+            }
 
-                        if score > bestScore {
-                            bestScore = score
-                            bestKeys = candidateKeys
-                            bestRect = unionRect
-                        }
-                    }
+            if abs(rowDelta) == 1, abs(columnDelta) == 1 {
+                let leftRect = first.column < second.column ? first.rect : second.rect
+                let rightRect = first.column < second.column ? second.rect : first.rect
+                let lowerRect = first.row > second.row ? first.rect : second.rect
+                let upperRect = first.row > second.row ? second.rect : first.rect
+
+                return (
+                    CGPoint(
+                        x: midpoint(leftRect.maxX, rightRect.minX),
+                        y: midpoint(lowerRect.maxY, upperRect.minY)
+                    ),
+                    3
+                )
+            }
+
+            return nil
+        }
+
+        func score(for candidate: Candidate) -> (Int, Int, Int, Int) {
+            let containsLatestKey = latestKey.map { candidate.keys.contains($0) } == true ? 1 : 0
+            let recencyScore = candidate.keys.reduce(0) { partialResult, key in
+                partialResult + (keyOrderIndex[key] ?? 0)
+            }
+            return (candidate.precision, containsLatestKey, recencyScore, candidate.keys.count)
+        }
+
+        var bestCandidate: Candidate?
+        var bestScore = (-1, -1, -1, -1)
+
+        for keyInfo in keyInfos {
+            let candidate = Candidate(
+                keys: [keyInfo.key],
+                rect: keyInfo.rect,
+                target: keyInfo.rect.center,
+                baseCellSize: keyInfo.rect.size,
+                precision: 1
+            )
+            let candidateScore = score(for: candidate)
+            if candidateScore > bestScore {
+                bestScore = candidateScore
+                bestCandidate = candidate
+            }
+        }
+
+        for firstIndex in keyInfos.indices {
+            for secondIndex in keyInfos.indices where secondIndex > firstIndex {
+                let first = keyInfos[firstIndex]
+                let second = keyInfos[secondIndex]
+
+                guard let (target, precision) = candidateTarget(first: first, second: second) else { continue }
+
+                let candidate = Candidate(
+                    keys: [first.key, second.key],
+                    rect: first.rect.union(second.rect),
+                    target: target,
+                    baseCellSize: CGSize(
+                        width: (first.rect.width + second.rect.width) / 2,
+                        height: (first.rect.height + second.rect.height) / 2
+                    ),
+                    precision: precision
+                )
+                let candidateScore = score(for: candidate)
+                if candidateScore > bestScore {
+                    bestScore = candidateScore
+                    bestCandidate = candidate
                 }
             }
         }
 
-        guard !bestKeys.isEmpty, let bestRect else { return nil }
-
-        let cellRects = bestKeys.compactMap { layout.rect(for: $0, in: bounds) }
-        let averageWidth = cellRects.reduce(CGFloat.zero) { $0 + $1.width } / CGFloat(max(cellRects.count, 1))
-        let averageHeight = cellRects.reduce(CGFloat.zero) { $0 + $1.height } / CGFloat(max(cellRects.count, 1))
-        let baseCellSize = CGSize(width: averageWidth, height: averageHeight)
-
-        return (keys: bestKeys, rect: bestRect, target: bestRect.center, baseCellSize: baseCellSize)
+        guard let bestCandidate else { return nil }
+        return (keys: previewKeys, rect: bestCandidate.rect, target: bestCandidate.target, baseCellSize: bestCandidate.baseCellSize)
     }
 
     private func refinementRect(for selection: (keys: Set<Character>, rect: CGRect, target: CGPoint, baseCellSize: CGSize)) -> CGRect {
