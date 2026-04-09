@@ -24,7 +24,9 @@ struct AppPanelView: View {
             HStack(spacing: 0) {
                 ForEach(PanelTab.allCases, id: \.self) { tab in
                     Button {
-                        selectedTab = tab
+                        withAnimation(.snappy(duration: 0.25)) {
+                            selectedTab = tab
+                        }
                     } label: {
                         HStack(spacing: 5) {
                             Image(systemName: tab.icon)
@@ -54,15 +56,18 @@ struct AppPanelView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
 
-            switch selectedTab {
-            case .settings:
-                MenuBarContentView(
-                    permissionManager: permissionManager,
-                    onQuit: onQuit
-                )
-            case .info:
-                InfoView(onQuit: onQuit)
+            Group {
+                switch selectedTab {
+                case .settings:
+                    MenuBarContentView(
+                        permissionManager: permissionManager,
+                        onQuit: onQuit
+                    )
+                case .info:
+                    InfoView(onQuit: onQuit)
+                }
             }
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
         .frame(width: panelWidth)
     }
