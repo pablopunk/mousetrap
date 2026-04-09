@@ -180,7 +180,7 @@ struct ShortcutRowView: View {
                         .foregroundStyle(.tint)
                         .frame(width: 18)
 
-                    Text("Travel")
+                    Text("Mouse travel")
                         .font(.system(size: 13, weight: .medium))
 
                     Spacer(minLength: 0)
