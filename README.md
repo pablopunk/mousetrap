@@ -3,7 +3,6 @@
 > Get it? It kills the mouse.
 
 
-
 <p align="center">
   <img width="128" height="128" alt="icon" src="https://github.com/pablopunk/mousetrap/blob/main/assets/AppIcon.png?raw=true" />
 </p>
@@ -12,11 +11,13 @@
 <img width="100%" alt="explain" src="https://github.com/pablopunk/mousetrap/blob/main/assets/keyboard-keys-screen.png?raw=true" />
 </p>
 
-https://github.com/user-attachments/assets/1eb0b6e0-582b-4748-bb40-ceda9cb46842
+
+https://github.com/user-attachments/assets/7aa6cd9a-ce6a-49e1-9844-28a37eb02382
 
 
 
 ## Install
+
 
 ```bash
 brew install pablopunk/brew/mousetrap
