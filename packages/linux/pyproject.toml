@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mousetrap-hyprland"
-version = "0.0.1"
+dynamic = ["version"]
 description = "Hyprland-specific Mousetrap prototype"
 requires-python = ">=3.11"
 dependencies = [
@@ -12,8 +12,14 @@ dependencies = [
   "pycairo>=1.28",
 ]
 
+[project.scripts]
+mousetrap-hyprland = "mousetrap_hyprland.cli:main"
+
 [tool.setuptools]
 packages = ["mousetrap_hyprland"]
 
 [tool.setuptools.package-dir]
 mousetrap_hyprland = "mousetrap_hyprland"
+
+[tool.setuptools.dynamic]
+version = {file = ["../../VERSION"]}

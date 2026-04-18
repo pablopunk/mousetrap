@@ -2,13 +2,14 @@ import time
 
 from .clicking import ClickBackendUnavailable, left_click
 from .hyprctl import move_cursor
-from .timings import POST_WARP_DELAY_SECONDS, PRE_WARP_DELAY_SECONDS
+from .settings import Settings
 
 
 def move_and_click(x: int, y: int) -> str:
-    time.sleep(PRE_WARP_DELAY_SECONDS)
+    settings = Settings.load()
+    time.sleep(settings.pre_warp_delay_seconds)
     move_cursor(x, y)
-    time.sleep(POST_WARP_DELAY_SECONDS)
+    time.sleep(settings.post_warp_delay_seconds)
     try:
         left_click()
         return 'clicked'
