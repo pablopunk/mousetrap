@@ -19,6 +19,7 @@ def clear_dynamic_binds() -> None:
     _run_keyword('unbind', ', escape')
     for key in KEYS:
         _run_keyword('unbind', f', {key}')
+        _run_keyword('unbindr', f', {key}')
 
 
 def install_dynamic_binds(package_root: Path) -> None:
@@ -27,7 +28,8 @@ def install_dynamic_binds(package_root: Path) -> None:
     _run_keyword('binde', f', escape, exec, {package_root / "cancel.sh"}')
     for key in KEYS:
         arg = SPECIAL_ARGS.get(key, key)
-        _run_keyword('binde', f', {key}, exec, {package_root / "select.sh"} {arg}')
+        _run_keyword('bind', f', {key}, exec, {package_root / "key_down.sh"} {arg}')
+        _run_keyword('bindr', f', {key}, exec, {package_root / "key_up.sh"} {arg}')
     _run_dispatch('submap', 'mousetrap')
 
 

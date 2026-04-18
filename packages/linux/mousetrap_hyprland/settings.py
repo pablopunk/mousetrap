@@ -16,6 +16,7 @@ class Settings:
     overlay_dismiss_delay_seconds: float = 0.12
     pre_warp_delay_seconds: float = 0.05
     post_warp_delay_seconds: float = 0.18
+    double_click_interval_seconds: float = 0.10
     click_backend: str = 'ydotool'
     refinement_steps: int = 3
     session_timeout_seconds: float = 8.0

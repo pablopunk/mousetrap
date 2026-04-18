@@ -21,6 +21,7 @@ class SessionState:
     max_steps: int = MAX_REFINEMENT_STEPS
     history: list[str] = field(default_factory=list)
     pending_keys: list[str] = field(default_factory=list)
+    held_keys: list[str] = field(default_factory=list)
     pending_since: float | None = None
     started_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -41,6 +42,7 @@ class SessionState:
             max_steps=data.get('max_steps', MAX_REFINEMENT_STEPS),
             history=list(data.get('history', [])),
             pending_keys=list(data.get('pending_keys', [])),
+            held_keys=list(data.get('held_keys', [])),
             pending_since=data.get('pending_since'),
             started_at=data.get('started_at', time.time()),
             updated_at=data.get('updated_at', time.time()),
@@ -81,19 +83,28 @@ class OverlaySession:
     def start(cls, bounds: tuple[int, int, int, int]) -> 'OverlaySession':
         return cls(SessionState.start(bounds))
 
-    def queue_key(self, key: str) -> str:
+    def key_down(self, key: str) -> str:
         target = find_cell_for_key(key)
         if not target:
             return 'invalid'
         key = key.lower()
-        if self.state.pending_keys:
-            if key in self.state.pending_keys:
-                return 'duplicate-pending'
+        if key in self.state.held_keys:
+            return 'duplicate-held'
+        self.state.held_keys.append(key)
+        if key not in self.state.pending_keys:
             self.state.pending_keys.append(key)
-        else:
-            self.state.pending_keys = [key]
+        if self.state.pending_since is None:
             self.state.pending_since = time.time()
         self.state.updated_at = time.time()
+        return 'pending'
+
+    def key_up(self, key: str) -> str:
+        key = (key or '').lower()
+        if key in self.state.held_keys:
+            self.state.held_keys.remove(key)
+        self.state.updated_at = time.time()
+        if self.state.pending_keys and not self.state.held_keys:
+            return 'commit'
         return 'pending'
 
     def commit_pending(self) -> SelectionResult | None:

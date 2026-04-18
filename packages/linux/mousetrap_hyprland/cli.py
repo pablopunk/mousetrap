@@ -2,8 +2,6 @@ import argparse
 import json
 import os
 import signal
-import subprocess
-import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -65,16 +63,6 @@ def _fresh_session(settings: Settings) -> SessionState:
     return session
 
 
-def _spawn_pending_commit(delay_seconds: float) -> None:
-    subprocess.Popen(
-        [sys.executable, '-m', 'mousetrap_hyprland.cli', 'maybe-commit-pending'],
-        env=os.environ.copy(),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-
-
 def _commit_selection(settings: Settings, selection) -> int:
     if selection is None:
         return 1
@@ -114,37 +102,29 @@ def cancel():
         state.clear()
 
 
-def select(key: str):
+def key_down(key: str):
     settings = Settings.load()
     state = SessionState.load()
     if state is None or state.has_timed_out(settings.session_timeout_seconds):
         state = _fresh_session(settings)
     session = OverlaySession(state)
-    queue_result = session.queue_key(key)
-    if queue_result == 'invalid':
+    result = session.key_down(key)
+    state.save()
+    return 0 if result != 'invalid' else 1
+
+
+def key_up(key: str):
+    settings = Settings.load()
+    state = SessionState.load()
+    if state is None or state.has_timed_out(settings.session_timeout_seconds):
         return 1
-    selection = None
-    if len(state.pending_keys) >= 2:
-        selection = session.commit_pending()
+    session = OverlaySession(state)
+    result = session.key_up(key)
+    selection = session.commit_pending() if result == 'commit' else None
     state.save()
     if selection is not None:
         return _commit_selection(settings, selection)
-    _spawn_pending_commit(settings.chord_timeout_seconds)
     return 0
-
-
-def maybe_commit_pending():
-    settings = Settings.load()
-    time.sleep(settings.chord_timeout_seconds)
-    state = SessionState.load()
-    if state is None or state.has_timed_out(settings.session_timeout_seconds) or not state.pending_keys:
-        return 0
-    if state.pending_since and (time.time() - state.pending_since) < settings.chord_timeout_seconds:
-        return 0
-    session = OverlaySession(state)
-    selection = session.commit_pending()
-    state.save()
-    return _commit_selection(settings, selection)
 
 
 def overlay():
@@ -184,9 +164,10 @@ def main(argv=None):
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('activate')
     sub.add_parser('cancel')
-    sel = sub.add_parser('select')
-    sel.add_argument('key')
-    sub.add_parser('maybe-commit-pending')
+    down = sub.add_parser('key-down')
+    down.add_argument('key')
+    up = sub.add_parser('key-up')
+    up.add_argument('key')
     sub.add_parser('overlay')
     sub.add_parser('doctor')
     sub.add_parser('init-config')
@@ -199,10 +180,10 @@ def main(argv=None):
     if args.command == 'cancel':
         cancel()
         return 0
-    if args.command == 'select':
-        return select(args.key)
-    if args.command == 'maybe-commit-pending':
-        return maybe_commit_pending()
+    if args.command == 'key-down':
+        return key_down(args.key)
+    if args.command == 'key-up':
+        return key_up(args.key)
     if args.command == 'overlay':
         overlay()
         return 0
