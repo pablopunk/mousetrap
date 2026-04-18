@@ -31,6 +31,9 @@ class OverlayWindow(Gtk.ApplicationWindow):
         Gtk4LayerShell.init_for_window(self)
         Gtk4LayerShell.set_namespace(self, WINDOW_NAMESPACE)
         Gtk4LayerShell.set_layer(self, Gtk4LayerShell.Layer.OVERLAY)
+        monitor = self._gdk_monitor_for_bounds(self.monitor_bounds)
+        if monitor is not None:
+            Gtk4LayerShell.set_monitor(self, monitor)
         for edge in [Gtk4LayerShell.Edge.LEFT, Gtk4LayerShell.Edge.RIGHT, Gtk4LayerShell.Edge.TOP, Gtk4LayerShell.Edge.BOTTOM]:
             Gtk4LayerShell.set_anchor(self, edge, True)
         Gtk4LayerShell.set_keyboard_mode(self, Gtk4LayerShell.KeyboardMode.NONE)
@@ -47,6 +50,19 @@ class OverlayWindow(Gtk.ApplicationWindow):
 
         self.connect('realize', self.on_realize)
         GLib.timeout_add(100, self.refresh_state)
+
+    def _gdk_monitor_for_bounds(self, bounds: tuple[int, int, int, int]):
+        display = Gdk.Display.get_default()
+        if display is None:
+            return None
+        monitors = display.get_monitors()
+        x, y, width, height = bounds
+        for index in range(monitors.get_n_items()):
+            monitor = monitors.get_item(index)
+            geometry = monitor.get_geometry()
+            if geometry.x == x and geometry.y == y and geometry.width == width and geometry.height == height:
+                return monitor
+        return display.get_monitor_at_surface(self.get_surface()) if self.get_surface() else None
 
     def on_realize(self, *_):
         self.present()
