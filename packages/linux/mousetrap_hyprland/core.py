@@ -40,3 +40,35 @@ def cell_bounds(bounds: tuple[int, int, int, int], target: CellTarget) -> tuple[
 def cell_center(bounds: tuple[int, int, int, int], target: CellTarget) -> tuple[int, int]:
     left, top, width, height = cell_bounds(bounds, target)
     return left + width // 2, top + height // 2
+
+
+def combine_bounds(cell_rects: list[tuple[int, int, int, int]]) -> tuple[int, int, int, int]:
+    left = min(x for x, _, _, _ in cell_rects)
+    top = min(y for _, y, _, _ in cell_rects)
+    right = max(x + w for x, _, w, _ in cell_rects)
+    bottom = max(y + h for _, y, _, h in cell_rects)
+    return left, top, max(1, right - left), max(1, bottom - top)
+
+
+def rect_center(bounds: tuple[int, int, int, int]) -> tuple[int, int]:
+    x, y, w, h = bounds
+    return x + w // 2, y + h // 2
+
+
+def classify_chord(targets: list[CellTarget]) -> str | None:
+    if len(targets) == 2:
+        rows = {target.row for target in targets}
+        cols = {target.column for target in targets}
+        same_row = len(rows) == 1 and max(cols) - min(cols) == 1
+        same_col = len(cols) == 1 and max(rows) - min(rows) == 1
+        if same_row or same_col:
+            return 'pair'
+    if len(targets) == 4:
+        rows = sorted({target.row for target in targets})
+        cols = sorted({target.column for target in targets})
+        if len(rows) == 2 and len(cols) == 2:
+            expected = {(r, c) for r in rows for c in cols}
+            actual = {(target.row, target.column) for target in targets}
+            if actual == expected:
+                return 'quad'
+    return None
