@@ -311,7 +311,7 @@ This separation matters because the current prototype already showed that compos
 - [ ] configurable/global activation abstraction beyond current Hyprland bind flow
 - [ ] keyboard-layout-aware grid on Linux
 - [x] 3-step nested refinement
-- [ ] chord targeting (`zx`, `aszx`, etc.)
+- [~] chord targeting (`zx`, `aszx`, etc.)
 - [ ] free-mouse mode
 - [ ] double-click
 - [ ] right-click

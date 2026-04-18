@@ -113,7 +113,10 @@ class OverlayWindow(Gtk.ApplicationWindow):
     def _draw_header(self, cr, bx: int, by: int, bw: int) -> None:
         step = min(self.current_state.step, self.current_state.max_steps)
         history_text = ' '.join(k.upper() for k in self.current_state.history) or '-'
+        pending_text = ''.join(k.upper() for k in self.current_state.pending_keys)
         text = f'Step {step}/{self.current_state.max_steps}  [{history_text}]'
+        if pending_text:
+            text += f'  pending:{pending_text}'
         cr.select_font_face('monospace', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
         cr.set_font_size(18)
         ext = cr.text_extents(text)

@@ -65,6 +65,7 @@ Current config fields:
 - `click_backend`
 - `refinement_steps`
 - `session_timeout_seconds`
+- `chord_timeout_seconds`
 - `bundle_ydotool_in_release`
 
 `dynamic` activation installs temporary Hyprland binds at runtime.
@@ -116,13 +117,14 @@ This still creates a dev tarball in `dist/linux/`, but it is no longer the prefe
 - Active-window-first targeting is the default geometry behavior
 - Hyprland submap-driven key selection path is implemented
 - Three-step refinement session is implemented
+- Basic chord targeting is implemented for adjacent pairs and 2x2 quads
 - Final step performs `move + left click`
 - Runtime dependency diagnostics are available
 - Settings are now configurable via a user config file
 
 ## Still missing
 
-- Chord targeting
+- Full macOS-parity chord semantics
 - Right-click / double-click / drag
 - Free-mouse mode
 - Timeout / safe reset polish

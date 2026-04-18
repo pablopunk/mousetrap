@@ -19,6 +19,7 @@ class Settings:
     click_backend: str = 'ydotool'
     refinement_steps: int = 3
     session_timeout_seconds: float = 8.0
+    chord_timeout_seconds: float = 0.35
     bundle_ydotool_in_release: bool = True
 
     @classmethod
