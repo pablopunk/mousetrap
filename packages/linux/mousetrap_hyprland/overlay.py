@@ -108,30 +108,6 @@ class OverlayWindow(Gtk.ApplicationWindow):
                 cr.move_to(tx, ty)
                 cr.show_text(ch.upper())
 
-        self._draw_header(cr, bx, by, bw)
-
-    def _draw_header(self, cr, bx: int, by: int, bw: int) -> None:
-        step = min(self.current_state.step, self.current_state.max_steps)
-        history_text = ' '.join(k.upper() for k in self.current_state.history) or '-'
-        pending_text = ''.join(k.upper() for k in self.current_state.pending_keys)
-        text = f'Step {step}/{self.current_state.max_steps}  [{history_text}]'
-        if pending_text:
-            text += f'  pending:{pending_text}'
-        cr.select_font_face('monospace', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(18)
-        ext = cr.text_extents(text)
-        pad_x = 14
-        pad_y = 10
-        box_w = ext.width + pad_x * 2
-        box_h = ext.height + pad_y * 2
-        box_x = max(12, bx)
-        box_y = max(12, by - box_h - 10)
-        cr.set_source_rgba(0, 0, 0, 0.55)
-        cr.rectangle(box_x, box_y, box_w, box_h)
-        cr.fill()
-        cr.set_source_rgba(1, 1, 1, 0.95)
-        cr.move_to(box_x + pad_x - ext.x_bearing, box_y + pad_y - ext.y_bearing)
-        cr.show_text(text)
 
 
 class App(Gtk.Application):
