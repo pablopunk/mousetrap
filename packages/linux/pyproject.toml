@@ -22,4 +22,4 @@ packages = ["mousetrap_hyprland"]
 mousetrap_hyprland = "mousetrap_hyprland"
 
 [tool.setuptools.dynamic]
-version = {file = ["../../VERSION"]}
+version = {attr = "mousetrap_hyprland.__version__"}
