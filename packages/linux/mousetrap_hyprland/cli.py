@@ -12,7 +12,7 @@ from .config import PACKAGE_ROOT
 from .diagnostics import run_checks
 from .geometry import target_bounds
 from .launcher import launch_overlay_detached
-from .session import OverlaySession
+from .session import OverlaySession, SessionState
 from .settings import Settings
 
 PID_FILE = Path('/tmp/mousetrap-hyprland-overlay.pid')
@@ -55,8 +55,18 @@ def stop_overlay():
         pass
 
 
+def _fresh_session(settings: Settings) -> SessionState:
+    session = SessionState.start(target_bounds())
+    session.max_steps = settings.refinement_steps
+    session.save()
+    return session
+
+
 def activate():
     settings = Settings.load()
+    session = SessionState.load()
+    if session is None or session.has_timed_out(settings.session_timeout_seconds):
+        _fresh_session(settings)
     if not _overlay_proc_alive():
         launch_overlay_detached()
         time.sleep(0.08)
@@ -70,19 +80,28 @@ def cancel():
     reset_submap()
     clear_dynamic_binds()
     stop_overlay()
+    state = SessionState.load()
+    if state:
+        state.clear()
 
 
 def select(key: str):
     settings = Settings.load()
-    bounds = target_bounds()
-    session = OverlaySession(bounds)
+    state = SessionState.load()
+    if state is None or state.has_timed_out(settings.session_timeout_seconds):
+        state = _fresh_session(settings)
+    session = OverlaySession(state)
     selection = session.resolve_key(key)
-    reset_submap()
-    stop_overlay()
-    time.sleep(settings.overlay_dismiss_delay_seconds)
     if not selection:
         return 1
-    move_and_click(selection['x'], selection['y'])
+    state.save()
+    if not selection.final:
+        return 0
+    reset_submap()
+    stop_overlay()
+    state.clear()
+    time.sleep(settings.overlay_dismiss_delay_seconds)
+    move_and_click(*selection.point)
     return 0
 
 

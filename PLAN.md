@@ -202,8 +202,14 @@ All Linux work lives under `packages/linux/`.
 - `packages/linux/mousetrap_hyprland/geometry.py`
   - active-window-first geometry resolution
 
-- `packages/linux/mousetrap_hyprland/timings.py`
-  - central timing constants for overlay teardown / warp / click
+- `packages/linux/mousetrap_hyprland/settings.py`
+  - persisted user config under XDG config
+
+- `packages/linux/mousetrap_hyprland/diagnostics.py`
+  - runtime dependency and environment checks
+
+- `packages/linux/mousetrap_hyprland/binds.py`
+  - centralized dynamic Hyprland bind/submap management
 
 - `packages/linux/mousetrap_hyprland/clicking.py`
   - click backend abstraction, currently via `ydotool`
@@ -232,6 +238,8 @@ All Linux work lives under `packages/linux/`.
 5. synthetic left click through `ydotool`
 6. activation / cancel / select CLI flow
 7. dynamic runtime bind experimentation through `hyprctl`
+8. user config file and `doctor` checks
+9. Arch-native packaging scaffolding and AUR-friendly `-git` packaging
 
 ### Current dependencies
 
@@ -246,7 +254,7 @@ All Linux work lives under `packages/linux/`.
 - `gtk4`
 - `gtk4-layer-shell`
 - `python-gobject`
-- `cairo`
+- `python-cairo`
 - `jq`
 - `hyprland`
 - `ydotool` (currently required for clicking)
@@ -302,7 +310,7 @@ This separation matters because the current prototype already showed that compos
 
 - [ ] configurable/global activation abstraction beyond current Hyprland bind flow
 - [ ] keyboard-layout-aware grid on Linux
-- [ ] 3-step nested refinement
+- [x] 3-step nested refinement
 - [ ] chord targeting (`zx`, `aszx`, etc.)
 - [ ] free-mouse mode
 - [ ] double-click
@@ -313,13 +321,253 @@ This separation matters because the current prototype already showed that compos
 - [ ] pulse / reveal visual options
 - [ ] settings UI
 - [ ] launch-at-login / autostart UX
-- [ ] polished packaging / install flow
+- [~] polished packaging / install flow
 - [ ] replacement of `ydotool` with a native pointer backend
 - [ ] broader Linux compositor support
 
 ---
 
 ## Proposed roadmap
+
+## Phase 0: finish stabilizing the current Hyprland MVP
+
+### Goals
+
+Make the current single-step Linux path solid enough that parity work does not stack on top of flaky behavior.
+
+### Tasks
+
+1. **Lock the control plane**
+   - keep `mousetrap_hyprland.cli` as the canonical entrypoint
+   - keep shell scripts as thin wrappers only
+   - avoid duplicating bind logic outside Python
+
+2. **Decide and codify the default activation mode**
+   - prefer static sourced Hyprland config if it proves more reliable
+   - keep dynamic binds as dev/fallback mode
+   - make docs/config reflect the default clearly
+
+3. **Harden teardown and cancel invariants**
+   - always reset submap
+   - always stop overlay cleanly
+   - avoid stale pidfile / stale bind state
+   - make repeated activate/cancel/select cycles safe
+
+4. **Tighten click reliability**
+   - verify overlay-dismiss -> warp -> click timing
+   - make backend errors actionable
+   - keep `ydotool` as current default backend
+
+5. **Geometry and multi-monitor validation**
+   - verify active-window-first behavior across outputs
+   - check partially off-screen windows
+   - validate monitor fallback when no active mapped window exists
+
+6. **Packaging/install hygiene**
+   - keep Arch package path as preferred Linux install path
+   - keep AUR `mousetrap-hyprland-git` recipe current until the first Linux-capable stable tag exists
+
+### Exit criteria
+
+- activation/cancel/select are reliable in repeated use
+- config and doctor flow are stable
+- packaging/docs are good enough that Linux feature work can proceed without install churn
+
+---
+
+## Phase 1: implement parity-critical interaction model
+
+### Goals
+
+Port the real Mousetrap interaction model, starting with the feature that unlocks the most parity fastest: **three-step nested refinement**.
+
+### Tasks
+
+1. **Design a Linux session state machine**
+   - session starts with target bounds from active window or monitor fallback
+   - each selection produces a refined rectangle
+   - session tracks current step, current bounds, and selection history
+   - final step resolves to a click point
+
+2. **Refactor portable core logic**
+   - separate single-step grid lookup from multi-step session progression
+   - move refinement math into platform-agnostic modules
+   - keep Hyprland-specific code limited to bounds lookup, overlay launch, and pointer actions
+
+3. **Upgrade overlay rendering to session-aware UI**
+   - render only the current refinement bounds
+   - show current step visually
+   - keep labels readable as the bounds shrink
+   - maintain non-activating overlay behavior
+
+4. **Implement reset/cancel/timeout rules**
+   - Esc cancels at any stage
+   - timeout resets safely
+   - invalid key sequences do not leave broken state behind
+
+5. **End-to-end validation before new click types**
+   - three-step refine -> final click must work reliably
+   - do not add right-click/double-click/drag until the core refine flow is solid
+
+### Exit criteria
+
+- Linux supports three-step refinement
+- overlay follows the current refinement rectangle cleanly
+- cancel/timeout/reset behavior is predictable
+
+---
+
+## Phase 2: expand target semantics
+
+### Goals
+
+Match more of the macOS targeting precision and interaction vocabulary.
+
+### Tasks
+
+1. **Chord targeting**
+   - support adjacent-key combinations such as `zx` and `aszx`
+   - resolve edges, corners, and midpoints where practical
+   - keep scoring/selection rules deterministic
+
+2. **Keyboard/layout fidelity**
+   - move beyond hardcoded US-QWERTY assumptions
+   - support configurable key rows first
+   - later investigate real layout-aware behavior closer to macOS
+
+3. **Overlay previews for advanced selection**
+   - show chord preview / final point preview when useful
+   - preserve readability and low visual noise
+
+### Exit criteria
+
+- users can target more precisely than simple cell centers
+- grid definition is no longer rigidly tied to one layout assumption
+
+---
+
+## Phase 3: mouse actions parity
+
+### Goals
+
+Move from “final left click only” to a richer set of pointer actions.
+
+### Tasks
+
+1. **Generalize the click backend API**
+   - left click
+   - right click
+   - double click
+   - drag start / move / end
+
+2. **Add keyboard-driven action mappings**
+   - Enter / Space click
+   - explicit right-click trigger
+   - explicit double-click trigger
+
+3. **Preserve state cleanup invariants**
+   - no stuck drag
+   - no repeated pending clicks
+   - clear safe return path on cancel
+
+### Exit criteria
+
+- Linux supports the primary pointer actions Mousetrap users expect
+- click backend abstractions are ready for future native replacement
+
+---
+
+## Phase 4: free-mouse mode parity
+
+### Goals
+
+Support arrow/key-driven mouse movement in addition to grid targeting.
+
+### Tasks
+
+1. **Free-mouse session state**
+   - enter/exit mode predictably
+   - separate it cleanly from grid refine state
+
+2. **Keyboard-driven pointer movement**
+   - configurable movement step size
+   - later possibly acceleration behavior
+
+3. **Actions while in free-mouse mode**
+   - click
+   - double click
+   - right click
+   - drag
+
+4. **Safety rules**
+   - cleanup ordering on mode switches
+   - timeout/reset semantics
+   - ignore synthetic motion where needed to avoid self-cancellation patterns
+
+### Exit criteria
+
+- free-mouse mode is practical for real use
+- switching between modes is safe and predictable
+
+---
+
+## Phase 5: polish and daily-driver quality
+
+### Goals
+
+Close the remaining usability and robustness gaps with the macOS app.
+
+### Tasks
+
+1. **Pulse / reveal visuals**
+   - optional visual pulsing
+   - better visibility controls
+
+2. **Multi-monitor correctness audit**
+   - clamping at edges
+   - output selection correctness
+   - window/screen transform correctness
+
+3. **Timeout and recovery polish**
+   - safe reset from all active states
+   - actionable diagnostics when backend actions fail
+
+4. **Autostart and settings polish**
+   - clean docs for Hyprland startup integration
+   - optionally a lightweight settings/helper UI later
+
+### Exit criteria
+
+- Linux Mousetrap feels robust enough for daily use
+- most remaining gaps are intentional platform differences, not missing basics
+
+---
+
+## Phase 6: backend quality ceiling work
+
+### Goals
+
+Reduce long-term fragility from the current click backend and compositor coupling where possible.
+
+### Tasks
+
+1. **Keep `ydotool` as the short-term default**
+   - do not block parity work on backend replacement
+
+2. **Investigate native pointer injection options**
+   - Hyprland/Wayland virtual pointer paths
+   - small native helper if needed
+
+3. **Re-evaluate packaging once backend strategy is clearer**
+   - stable Arch package once a Linux-capable release tag exists
+   - possibly broader distro support later
+
+### Exit criteria
+
+- we understand whether replacing `ydotool` is worth it
+- backend constraints are no longer a hidden risk to feature quality
+
+---
 
 ## Phase 1: stabilize the current Hyprland MVP
 
