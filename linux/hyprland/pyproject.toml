@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mousetrap-hyprland"
+version = "0.0.1"
+description = "Hyprland-specific Mousetrap prototype"
+requires-python = ">=3.11"
+dependencies = [
+  "PyGObject>=3.54",
+  "pycairo>=1.28",
+]
+
+[tool.setuptools]
+packages = ["mousetrap_hyprland"]
+
+[tool.setuptools.package-dir]
+mousetrap_hyprland = "mousetrap_hyprland"
