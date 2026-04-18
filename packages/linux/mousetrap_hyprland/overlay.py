@@ -18,9 +18,9 @@ class OverlayWindow(Gtk.ApplicationWindow):
         self.settings = Settings.load()
         loaded_state = SessionState.load()
         monitor = focused_monitor()
-        scale = float(monitor.get('scale', 1.0) or 1.0)
+        self.scale = float(monitor.get('scale', 1.0) or 1.0)
         self.monitor_bounds = (monitor['x'], monitor['y'], monitor['width'], monitor['height'])
-        self.window_size = (max(1, int(monitor['width'] / scale)), max(1, int(monitor['height'] / scale)))
+        self.window_size = (max(1, int(monitor['width'] / self.scale)), max(1, int(monitor['height'] / self.scale)))
         self.root_bounds = self.monitor_bounds
         self.current_state = loaded_state or SessionState.start(self.monitor_bounds)
         self.set_decorated(False)
@@ -85,7 +85,13 @@ class OverlayWindow(Gtk.ApplicationWindow):
 
     def _local_rect(self, bounds: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
         x, y, w, h = bounds
-        return x, y, w, h
+        mx, my, _, _ = self.monitor_bounds
+        return (
+            int((x - mx) / self.scale),
+            int((y - my) / self.scale),
+            max(1, int(w / self.scale)),
+            max(1, int(h / self.scale)),
+        )
 
     def draw(self, area, cr, width, height):
         cr.set_operator(cairo.OPERATOR_SOURCE)
