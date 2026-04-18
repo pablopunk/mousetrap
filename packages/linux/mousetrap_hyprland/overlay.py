@@ -2,7 +2,7 @@ import cairo
 import gi
 
 from .config import APP_ID, CELL_PADDING, OVERLAY_ALPHA, ROWS, WINDOW_NAMESPACE
-from .hyprctl import focused_monitor
+from .hyprctl import focused_monitor, logical_monitor_bounds
 from .session import SessionState
 from .settings import Settings
 
@@ -18,9 +18,8 @@ class OverlayWindow(Gtk.ApplicationWindow):
         self.settings = Settings.load()
         loaded_state = SessionState.load()
         monitor = focused_monitor()
-        self.scale = float(monitor.get('scale', 1.0) or 1.0)
-        self.monitor_bounds = (monitor['x'], monitor['y'], monitor['width'], monitor['height'])
-        self.window_size = (max(1, int(monitor['width'] / self.scale)), max(1, int(monitor['height'] / self.scale)))
+        self.monitor_bounds = logical_monitor_bounds(monitor)
+        self.window_size = (self.monitor_bounds[2], self.monitor_bounds[3])
         self.root_bounds = self.monitor_bounds
         self.current_state = loaded_state or SessionState.start(self.monitor_bounds)
         self.set_decorated(False)
@@ -62,8 +61,7 @@ class OverlayWindow(Gtk.ApplicationWindow):
         for index in range(monitors.get_n_items()):
             monitor = monitors.get_item(index)
             geometry = monitor.get_geometry()
-            scale = monitor.get_scale_factor() or 1
-            if geometry.x == int(x / scale) and geometry.y == int(y / scale) and geometry.width == int(width / scale) and geometry.height == int(height / scale):
+            if geometry.x == x and geometry.y == y and geometry.width == width and geometry.height == height:
                 return monitor
         return display.get_monitor_at_surface(self.get_surface()) if self.get_surface() else None
 
@@ -86,12 +84,7 @@ class OverlayWindow(Gtk.ApplicationWindow):
     def _local_rect(self, bounds: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
         x, y, w, h = bounds
         mx, my, _, _ = self.monitor_bounds
-        return (
-            int((x - mx) / self.scale),
-            int((y - my) / self.scale),
-            max(1, int(w / self.scale)),
-            max(1, int(h / self.scale)),
-        )
+        return x - mx, y - my, w, h
 
     def draw(self, area, cr, width, height):
         cr.set_operator(cairo.OPERATOR_SOURCE)

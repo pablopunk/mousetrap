@@ -18,6 +18,17 @@ def focused_monitor():
     return monitors[0]
 
 
+def logical_monitor_bounds(mon=None):
+    mon = mon or focused_monitor()
+    scale = float(mon.get('scale', 1.0) or 1.0)
+    return (
+        int(mon['x'] / scale),
+        int(mon['y'] / scale),
+        max(1, int(mon['width'] / scale)),
+        max(1, int(mon['height'] / scale)),
+    )
+
+
 def active_window():
     return hypr_json('activewindow')
 
