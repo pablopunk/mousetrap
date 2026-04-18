@@ -1,16 +1,19 @@
 import argparse
+import json
 import os
 import signal
-import subprocess
-import sys
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 from .actions import move_and_click
+from .binds import clear_dynamic_binds, install_dynamic_binds, reset_submap
+from .config import PACKAGE_ROOT
+from .diagnostics import run_checks
 from .geometry import target_bounds
 from .launcher import launch_overlay_detached
 from .session import OverlaySession
-from .timings import OVERLAY_DISMISS_DELAY_SECONDS
+from .settings import Settings
 
 PID_FILE = Path('/tmp/mousetrap-hyprland-overlay.pid')
 
@@ -52,29 +55,31 @@ def stop_overlay():
         pass
 
 
-def set_submap(name: str):
-    subprocess.run(['hyprctl', 'dispatch', 'submap', name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-
 def activate():
+    settings = Settings.load()
     if not _overlay_proc_alive():
         launch_overlay_detached()
         time.sleep(0.08)
-    set_submap('mousetrap')
+    if settings.activation_mode == 'dynamic':
+        install_dynamic_binds(PACKAGE_ROOT)
+    else:
+        reset_submap()
 
 
 def cancel():
-    set_submap('reset')
+    reset_submap()
+    clear_dynamic_binds()
     stop_overlay()
 
 
 def select(key: str):
+    settings = Settings.load()
     bounds = target_bounds()
     session = OverlaySession(bounds)
     selection = session.resolve_key(key)
-    set_submap('reset')
+    reset_submap()
     stop_overlay()
-    time.sleep(OVERLAY_DISMISS_DELAY_SECONDS)
+    time.sleep(settings.overlay_dismiss_delay_seconds)
     if not selection:
         return 1
     move_and_click(selection['x'], selection['y'])
@@ -90,6 +95,29 @@ def overlay():
         clear_pid()
 
 
+def doctor() -> int:
+    failures = 0
+    for check in run_checks():
+        status = 'ok' if check.ok else 'missing'
+        print(f'[{status}] {check.name}: {check.detail}')
+        if not check.ok and check.name in {'hyprctl', 'python3'}:
+            failures += 1
+    return 1 if failures else 0
+
+
+def init_config() -> int:
+    settings = Settings.load()
+    path = settings.save()
+    print(path)
+    return 0
+
+
+def print_config() -> int:
+    settings = Settings.load()
+    print(json.dumps(asdict(settings), indent=2))
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest='command', required=True)
@@ -98,6 +126,9 @@ def main(argv=None):
     sel = sub.add_parser('select')
     sel.add_argument('key')
     sub.add_parser('overlay')
+    sub.add_parser('doctor')
+    sub.add_parser('init-config')
+    sub.add_parser('print-config')
     args = parser.parse_args(argv)
 
     if args.command == 'activate':
@@ -111,6 +142,12 @@ def main(argv=None):
     if args.command == 'overlay':
         overlay()
         return 0
+    if args.command == 'doctor':
+        return doctor()
+    if args.command == 'init-config':
+        return init_config()
+    if args.command == 'print-config':
+        return print_config()
     return 1
 
 

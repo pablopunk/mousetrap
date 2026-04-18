@@ -1,4 +1,4 @@
-.PHONY: help build build-mac run run-mac build-release build-release-mac release
+.PHONY: help version build build-mac build-linux run run-mac doctor-linux config-linux package-linux build-release build-release-mac release release-mac
 
 VERSION := $(shell cat VERSION)
 OS := $(shell uname -s)
@@ -10,14 +10,16 @@ help:
 	@echo "Detected OS: $(OS)"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  make build-mac        Build macOS app (debug)"
-	@echo "  make run-mac          Build and run macOS app"
-	@echo "  make build-release-mac Build macOS release (signed + notarized)"
-	@echo "  make release-mac VERSION=x.y.z  Release macOS version"
-	@echo "  make build-linux      Build Linux package (install)"
-	@echo "  make version          Show current version"
+	@echo "  make build-mac            Build macOS app (debug)"
+	@echo "  make run-mac              Build and run macOS app"
+	@echo "  make build-release-mac    Build macOS release artifact"
+	@echo "  make release-mac          Release macOS version from main"
+	@echo "  make build-linux          Install Linux package in editable mode"
+	@echo "  make doctor-linux         Check Linux runtime dependencies"
+	@echo "  make config-linux         Create default Linux config"
+	@echo "  make package-linux        Build Linux release bundle"
+	@echo "  make version              Show current version"
 
-# macOS targets
 build-mac:
 	bash ./scripts/build-app.sh
 
@@ -30,12 +32,18 @@ build-release-mac:
 release-mac:
 	bash ./scripts/release.sh $(VERSION)
 
-# Linux targets
 build-linux:
-	@echo "Installing Linux/Hyprland package..."
 	cd packages/linux && python3 -m pip install --user -e .
 
-# Convenience aliases (OS-specific defaults)
+doctor-linux:
+	cd packages/linux && python3 -m mousetrap_hyprland.cli doctor
+
+config-linux:
+	cd packages/linux && python3 -m mousetrap_hyprland.cli init-config
+
+package-linux:
+	bash ./scripts/build-linux-bundle.sh
+
 ifeq ($(OS),Darwin)
 build: build-mac
 run: run-mac
@@ -44,13 +52,11 @@ release: release-mac
 else
 build: build-linux
 run:
-	@echo "Run target not yet implemented for Linux"
+	@echo "Use Hyprland bindings or packages/linux/activate.sh on Linux"
 	@exit 1
-build-release:
-	@echo "Release build not yet implemented for Linux"
-	@exit 1
+build-release: package-linux
 release:
-	@echo "Release not yet implemented for Linux"
+	@echo "Linux release publishing not implemented yet; use make package-linux"
 	@exit 1
 endif
 

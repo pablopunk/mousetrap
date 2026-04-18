@@ -38,8 +38,10 @@ Quick start:
 sudo pacman -S gtk4 gtk4-layer-shell python python-gobject cairo jq ydotool
 systemctl --user enable --now ydotool.service
 
-# Build
+# Build + validate
 make build-linux
+make doctor-linux
+make config-linux
 
 # Configure Hyprland
 # Add to your hyprland.conf:
@@ -80,6 +82,9 @@ make run-mac
 
 ```bash
 make build-linux
+make doctor-linux
+make config-linux
+make package-linux
 ```
 
 ## Repository Structure
