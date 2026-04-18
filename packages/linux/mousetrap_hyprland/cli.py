@@ -12,7 +12,7 @@ from .actions import move_and_click
 from .binds import clear_dynamic_binds, install_dynamic_binds, reset_submap
 from .config import PACKAGE_ROOT
 from .diagnostics import run_checks
-from .geometry import target_bounds
+from .hyprctl import focused_monitor
 from .launcher import launch_overlay_detached
 from .session import OverlaySession, SessionState
 from .settings import Settings
@@ -58,7 +58,8 @@ def stop_overlay():
 
 
 def _fresh_session(settings: Settings) -> SessionState:
-    session = SessionState.start(target_bounds())
+    monitor = focused_monitor()
+    session = SessionState.start((monitor['x'], monitor['y'], monitor['width'], monitor['height']))
     session.max_steps = settings.refinement_steps
     session.save()
     return session

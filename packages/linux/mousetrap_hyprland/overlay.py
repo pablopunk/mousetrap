@@ -2,7 +2,7 @@ import cairo
 import gi
 
 from .config import APP_ID, CELL_PADDING, OVERLAY_ALPHA, ROWS, WINDOW_NAMESPACE
-from .geometry import target_bounds
+from .hyprctl import focused_monitor
 from .session import SessionState
 from .settings import Settings
 
@@ -17,7 +17,11 @@ class OverlayWindow(Gtk.ApplicationWindow):
         super().__init__(application=app)
         self.settings = Settings.load()
         loaded_state = SessionState.load()
-        self.root_bounds = loaded_state.initial_bounds if loaded_state else target_bounds()
+        if loaded_state:
+            self.root_bounds = loaded_state.initial_bounds
+        else:
+            monitor = focused_monitor()
+            self.root_bounds = (monitor['x'], monitor['y'], monitor['width'], monitor['height'])
         self.current_state = loaded_state or SessionState.start(self.root_bounds)
         self.set_decorated(False)
         self.set_can_focus(False)
