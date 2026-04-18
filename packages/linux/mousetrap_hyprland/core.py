@@ -1,6 +1,15 @@
 from dataclasses import dataclass
 
-from .config import ROWS
+from .config import MAX_COLUMNS, ROWS
+
+REFINEMENT_WIDTH_EXPANSION_RATIO = 0.5
+FINAL_CLICK_BASE_WIDTH_EXPANSION_RATIO = 0.5
+FINAL_CLICK_LAPTOP_HEIGHT_EXPANSION_RATIO = 0.08
+FINAL_CLICK_DESKTOP_HEIGHT_EXPANSION_RATIO = 0.03
+FINAL_CLICK_LAPTOP_TARGET_KEY_WIDTH = 22
+FINAL_CLICK_DESKTOP_TARGET_KEY_WIDTH = 19
+FINAL_CLICK_MAX_SCREEN_WIDTH_FRACTION = 0.4
+COMPACT_SCREEN_WIDTH_THRESHOLD = 1600
 
 
 @dataclass(frozen=True)
@@ -72,3 +81,42 @@ def classify_chord(targets: list[CellTarget]) -> str | None:
             if actual == expected:
                 return 'quad'
     return None
+
+
+def expanded_bounds(rect: tuple[int, int, int, int], *, screen_bounds: tuple[int, int, int, int], next_depth: int) -> tuple[int, int, int, int]:
+    width_expansion_ratio = 0.0
+    height_expansion_ratio = 0.0
+    _, _, screen_width, _ = screen_bounds
+    _, _, rect_width, _ = rect
+
+    if next_depth == 1:
+        width_expansion_ratio = REFINEMENT_WIDTH_EXPANSION_RATIO
+    elif next_depth == 2:
+        compact_screen_factor = max(0.0, min(1.0, (COMPACT_SCREEN_WIDTH_THRESHOLD - screen_width) / 500.0))
+        target_key_width = FINAL_CLICK_DESKTOP_TARGET_KEY_WIDTH + ((FINAL_CLICK_LAPTOP_TARGET_KEY_WIDTH - FINAL_CLICK_DESKTOP_TARGET_KEY_WIDTH) * compact_screen_factor)
+        height_expansion_ratio = FINAL_CLICK_DESKTOP_HEIGHT_EXPANSION_RATIO + ((FINAL_CLICK_LAPTOP_HEIGHT_EXPANSION_RATIO - FINAL_CLICK_DESKTOP_HEIGHT_EXPANSION_RATIO) * compact_screen_factor)
+        base_width = rect_width * (1 + 2 * FINAL_CLICK_BASE_WIDTH_EXPANSION_RATIO)
+        target_width_from_keys = target_key_width * MAX_COLUMNS
+        max_allowed_width = screen_width * FINAL_CLICK_MAX_SCREEN_WIDTH_FRACTION
+        desired_width = min(max(base_width, target_width_from_keys), max_allowed_width)
+        width_expansion_ratio = max(0.0, (desired_width / max(rect_width, 1) - 1) / 2)
+
+    if width_expansion_ratio <= 0 and height_expansion_ratio <= 0:
+        return rect
+
+    return inset_and_clip(rect, screen_bounds, width_expansion_ratio, height_expansion_ratio)
+
+
+def inset_and_clip(rect: tuple[int, int, int, int], screen_bounds: tuple[int, int, int, int], width_expansion_ratio: float, height_expansion_ratio: float) -> tuple[int, int, int, int]:
+    x, y, width, height = rect
+    sx, sy, sw, sh = screen_bounds
+    expanded_x = x - int(width * width_expansion_ratio)
+    expanded_y = y - int(height * height_expansion_ratio)
+    expanded_w = width + int(width * width_expansion_ratio * 2)
+    expanded_h = height + int(height * height_expansion_ratio * 2)
+
+    left = max(expanded_x, sx)
+    top = max(expanded_y, sy)
+    right = min(expanded_x + expanded_w, sx + sw)
+    bottom = min(expanded_y + expanded_h, sy + sh)
+    return left, top, max(1, right - left), max(1, bottom - top)
