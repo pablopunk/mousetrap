@@ -92,9 +92,10 @@ def _commit_selection(settings: Settings, selection) -> int:
 
 def activate():
     settings = Settings.load()
-    session = SessionState.load()
-    if session is None or session.has_timed_out(settings.session_timeout_seconds):
-        _fresh_session(settings)
+    existing = SessionState.load()
+    if existing:
+        existing.clear()
+    _fresh_session(settings)
     if not _overlay_proc_alive():
         launch_overlay_detached()
         time.sleep(0.08)
