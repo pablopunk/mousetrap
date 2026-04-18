@@ -17,7 +17,9 @@ help:
 	@echo "  make build-linux          Install Linux package in editable mode"
 	@echo "  make doctor-linux         Check Linux runtime dependencies"
 	@echo "  make config-linux         Create default Linux config"
-	@echo "  make package-linux        Build Linux release bundle"
+	@echo "  make package-linux        Build Linux release bundle (dev tarball)"
+	@echo "  make package-linux-arch   Build Arch package locally"
+	@echo "  make install-linux-arch-local Install locally-built Arch package"
 	@echo "  make version              Show current version"
 
 build-mac:
@@ -43,6 +45,12 @@ config-linux:
 
 package-linux:
 	bash ./scripts/build-linux-bundle.sh
+
+package-linux-arch:
+	bash ./scripts/build-linux-arch-package.sh
+
+install-linux-arch-local:
+	bash ./scripts/install-linux-arch-local.sh
 
 ifeq ($(OS),Darwin)
 build: build-mac

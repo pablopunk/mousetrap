@@ -35,7 +35,7 @@ Quick start:
 
 ```bash
 # Install dependencies (Arch example)
-sudo pacman -S gtk4 gtk4-layer-shell python python-gobject cairo jq ydotool
+sudo pacman -S gtk4 gtk4-layer-shell python python-gobject python-cairo jq ydotool
 systemctl --user enable --now ydotool.service
 
 # Build + validate

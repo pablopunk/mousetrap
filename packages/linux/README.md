@@ -34,7 +34,7 @@ This installs the package in editable mode, checks runtime dependencies, and wri
 System package deps currently expected on Arch/Hyprland:
 
 ```bash
-sudo pacman -S gtk4 gtk4-layer-shell python python-gobject cairo jq hyprland ydotool
+sudo pacman -S gtk4 gtk4-layer-shell python python-gobject python-cairo jq hyprland ydotool
 systemctl --user enable --now ydotool.service
 ```
 
@@ -84,18 +84,24 @@ source = /path/to/mousetrap/packages/linux/mousetrap.conf
 
 ## Linux release bundling
 
-For Linux we should not depend on PyPI-only packaging as the whole release story; we also need compositor/system dependencies. For now:
+For Linux, the preferred release path is now a distro-native package instead of bundling architecture-specific binaries.
+
+### Arch package
+
+```bash
+make package-linux-arch
+make install-linux-arch-local
+```
+
+This builds a local Arch package that declares normal pacman dependencies such as `ydotool`, `gtk4`, `python-gobject`, and `gtk4-layer-shell`.
+
+### Dev tarball
 
 ```bash
 make package-linux
 ```
 
-This creates a tarball in `dist/linux/` and, when available, bundles local copies of `ydotool`, `ydotoold`, and the user service file.
-
-Important: bundling the binaries helps distribution, but it does **not** magically remove Wayland/uinput/session requirements. A polished Linux release will likely need either:
-
-- a distro package, or
-- an AppImage plus a managed user-service setup story.
+This still creates a dev tarball in `dist/linux/`, but it is no longer the preferred installation path.
 
 ## Current status
 
