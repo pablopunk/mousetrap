@@ -1,0 +1,26 @@
+pkgbase = mousetrap-hyprland-git
+	pkgdesc = Keyboard-driven mouse targeting for Hyprland (git)
+	pkgver = 0.3.2.r2.gaa53cea
+	pkgrel = 1
+	url = https://github.com/pablopunk/mousetrap
+	install = mousetrap-hyprland.install
+	arch = any
+	license = GPL-3.0-or-later
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	depends = python
+	depends = python-gobject
+	depends = python-cairo
+	depends = gtk4
+	depends = gtk4-layer-shell
+	depends = hyprland
+	depends = jq
+	depends = ydotool
+	provides = mousetrap-hyprland
+	conflicts = mousetrap-hyprland
+	source = git+https://github.com/pablopunk/mousetrap.git#branch=linux
+	sha256sums = SKIP
+
+pkgname = mousetrap-hyprland-git
