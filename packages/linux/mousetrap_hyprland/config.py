@@ -1,6 +1,7 @@
 from pathlib import Path
 
 ROWS = ['1234567890', 'qwertyuiop', 'asdfghjkl;', 'zxcvbnm,./']
+MAX_COLUMNS = max(len(row) for row in ROWS)
 CELL_PADDING = 6
 OVERLAY_ALPHA = 0.18
 WINDOW_NAMESPACE = 'mousetrap'

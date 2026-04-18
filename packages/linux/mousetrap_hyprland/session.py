@@ -6,7 +6,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from .core import CellTarget, cell_bounds, cell_center, classify_chord, combine_bounds, find_cell_for_key, rect_center
+from .core import CellTarget, cell_bounds, cell_center, classify_chord, combine_bounds, expanded_bounds, find_cell_for_key, rect_center
 
 STATE_DIR = Path(os.environ.get('XDG_RUNTIME_DIR', '/tmp')) / 'mousetrap-hyprland'
 STATE_FILE = STATE_DIR / 'session.json'
@@ -133,7 +133,12 @@ class OverlaySession:
             chord_kind=chord_kind,
         )
         self.state.history.append(''.join(keys))
-        self.state.current_bounds = selected_bounds
+        next_depth = self.state.step
+        self.state.current_bounds = expanded_bounds(
+            selected_bounds,
+            screen_bounds=self.state.initial_bounds,
+            next_depth=next_depth,
+        )
         self.state.step += 1
         self.state.updated_at = time.time()
         return result
