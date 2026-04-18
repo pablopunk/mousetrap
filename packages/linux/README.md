@@ -1,23 +1,34 @@
-# Hyprland POC
+# Mousetrap for Linux (Hyprland)
 
-This folder now has a small refactored Hyprland-specific prototype with a clearer production shape.
+Hyprland-specific implementation of Mousetrap.
 
 ## Structure
 
 - `mousetrap_hyprland/core.py`: platform-agnostic grid lookup and cell-center math
 - `mousetrap_hyprland/hyprctl.py`: Hyprland IPC/process adapter
-- `mousetrap_hyprland/overlay.py`: GTK4 layer-shell overlay window and key handling
+- `mousetrap_hyprland/overlay.py`: GTK4 layer-shell overlay window
 - `mousetrap_hyprland/config.py`: constants and layout settings
-- `overlay.py`: thin launcher
-- `cursor_center.sh`: thin cursor-centering helper
+- `mousetrap_hyprland/cli.py`: main CLI entrypoint
+- `mousetrap_hyprland/geometry.py`: active-window-first geometry resolution
+- `mousetrap_hyprland/timings.py`: timing constants
+- `mousetrap_hyprland/clicking.py`: click backend abstraction
+- `mousetrap_hyprland/actions.py`: higher-level actions
+- `activate.sh`, `select.sh`, `cancel.sh`: launcher scripts
+- `mousetrap.conf`: example Hyprland config
 
 ## Dependencies
 
 Python package deps:
 
 ```bash
-cd linux/hyprland
+cd packages/linux
 python3 -m pip install --user -e .
+```
+
+Or from repo root:
+
+```bash
+make build-linux
 ```
 
 System package deps currently expected on Arch/Hyprland:
@@ -26,23 +37,21 @@ System package deps currently expected on Arch/Hyprland:
 sudo pacman -S gtk4 gtk4-layer-shell python python-gobject cairo jq hyprland
 ```
 
-Optional for future synthetic clicking:
+Optional for clicking:
 
 ```bash
 sudo pacman -S ydotool
+systemctl --user enable --now ydotool.service
 ```
 
 ## Run
 
 ```bash
-python3 linux/hyprland/overlay.py
-bash linux/hyprland/cursor_center.sh
-bash linux/hyprland/activate.sh
-bash linux/hyprland/select.sh a
-bash linux/hyprland/cancel.sh
+# From repo root
+bash packages/linux/activate.sh
+bash packages/linux/select.sh a
+bash packages/linux/cancel.sh
 ```
-
-The launcher scripts currently work either with the editable install above or by setting `PYTHONPATH` as they already do.
 
 ## Current status
 
@@ -55,7 +64,17 @@ The launcher scripts currently work either with the editable install above or by
 
 ## Suggested Hyprland bind
 
-You can still `source = /home/pol/src/mousetrap/linux/hyprland/mousetrap.conf`, but for quick experiments `activate.sh` now also tries to register the temporary submap dynamically with `hyprctl` at runtime.
+Add to your Hyprland config:
+
+```ini
+bind = SUPER, SPACE, exec, /path/to/mousetrap/packages/linux/activate.sh
+```
+
+Or source the example config:
+
+```ini
+source = /path/to/mousetrap/packages/linux/mousetrap.conf
+```
 
 ## Still missing
 

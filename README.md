@@ -2,7 +2,6 @@
 
 > Get it? It kills the mouse.
 
-
 <p align="center">
   <img width="128" height="128" alt="icon" src="https://github.com/pablopunk/mousetrap/blob/main/assets/AppIcon.png?raw=true" />
 </p>
@@ -11,13 +10,16 @@
 <img width="100%" alt="explain" src="https://github.com/pablopunk/mousetrap/blob/main/assets/keyboard-keys-screen.png?raw=true" />
 </p>
 
-
 https://github.com/user-attachments/assets/7aa6cd9a-ce6a-49e1-9844-28a37eb02382
 
+## Platform Support
 
+- **macOS**: Full-featured, production-ready
+- **Linux (Hyprland)**: Work in progress — basic single-key targeting works
 
 ## Install
 
+### macOS
 
 ```bash
 brew install pablopunk/brew/mousetrap
@@ -25,9 +27,28 @@ brew install pablopunk/brew/mousetrap
 
 Or grab the latest release from the [releases page](https://github.com/pablopunk/mousetrap/releases).
 
+### Linux (Hyprland)
+
+See [packages/linux/README.md](packages/linux/README.md) for setup instructions.
+
+Quick start:
+
+```bash
+# Install dependencies (Arch example)
+sudo pacman -S gtk4 gtk4-layer-shell python python-gobject cairo jq ydotool
+systemctl --user enable --now ydotool.service
+
+# Build
+make build-linux
+
+# Configure Hyprland
+# Add to your hyprland.conf:
+bind = SUPER, SPACE, exec, /path/to/mousetrap/packages/linux/activate.sh
+```
+
 ## Features
 
-- ⚡ Native, lightweight, fast. Lives in your menu bar.
+- ⚡ Native, lightweight, fast. Lives in your menu bar (macOS) or integrates with your compositor (Linux).
 - 💅 Custom keyboard shortcuts.
 - 🌐 Real keys, read from your current keyboard layout.
 - 🎯 Three-step nested grid for fast, precise targeting.
@@ -48,12 +69,30 @@ Or grab the latest release from the [releases page](https://github.com/pablopunk
 
 ## Development
 
+### macOS
+
 ```bash
-make build
-make run
+make build-mac
+make run-mac
 ```
 
-## Releases
+### Linux
+
+```bash
+make build-linux
+```
+
+## Repository Structure
+
+```
+packages/
+  mac/          # macOS Swift implementation
+  linux/        # Linux Hyprland implementation
+scripts/        # Build and release scripts
+assets/         # Icons and images
+```
+
+## Releases (macOS)
 
 One-time setup: store notarization credentials in your keychain:
 
@@ -64,12 +103,10 @@ One-time setup: store notarization credentials in your keychain:
 xcrun notarytool store-credentials "Mousetrap" --apple-id YOUR_APPLE_ID --team-id YOUR_TEAM_ID
 ```
 
-It will prompt you for the app-specific password.
-
 Then release from `main` with a single command:
 
 ```bash
-make release VERSION=0.1.0
+make release-mac VERSION=0.1.0
 ```
 
 ## Acknowledgements

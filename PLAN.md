@@ -8,6 +8,19 @@ This document captures:
 - the gap to full feature parity with macOS
 - the proposed implementation roadmap
 
+## Repository Structure
+
+The repository is organized as an OS-agnostic project with platform-specific packages:
+
+```
+packages/
+  mac/          # macOS Swift implementation (Swift Package Manager project)
+  linux/        # Linux Hyprland implementation (Python package)
+scripts/        # Build and release scripts
+assets/         # Shared icons and images
+VERSION         # Shared version file
+```
+
 ## Goal
 
 Build a Linux version of Mousetrap with a Hyprland-first backend, while keeping the architecture clean enough to eventually support additional Linux compositors or a more native Wayland backend later.
@@ -143,71 +156,71 @@ We built and validated the following during this session:
 
 ## Current Linux / Hyprland state in the repo
 
-All current Linux work lives under `linux/hyprland/`.
+All Linux work lives under `packages/linux/`.
 
 ### Current files and roles
 
-- `linux/hyprland/pyproject.toml`
-  - Python package metadata for the Hyprland prototype
+- `packages/linux/pyproject.toml`
+  - Python package metadata for the Hyprland implementation
 
-- `linux/hyprland/README.md`
+- `packages/linux/README.md`
   - Linux/Hyprland setup and status notes
 
-- `linux/hyprland/mousetrap.conf`
+- `packages/linux/mousetrap.conf`
   - example Hyprland config with static binds/submap
 
-- `linux/hyprland/activate.sh`
+- `packages/linux/activate.sh`
   - activate overlay and runtime bind flow
 
-- `linux/hyprland/select.sh`
+- `packages/linux/select.sh`
   - select a key through CLI
 
-- `linux/hyprland/cancel.sh`
+- `packages/linux/cancel.sh`
   - cancel submap and overlay
 
-- `linux/hyprland/dynamic_bind.sh`
+- `packages/linux/dynamic_bind.sh`
   - dynamically register the temporary submap/binds via `hyprctl`
 
-- `linux/hyprland/cursor_center.sh`
+- `packages/linux/cursor_center.sh`
   - helper / diagnostic cursor centering script
 
-- `linux/hyprland/overlay.py`
+- `packages/linux/overlay.py`
   - thin launcher for the Python package
 
-- `linux/hyprland/mousetrap_hyprland/config.py`
+- `packages/linux/mousetrap_hyprland/config.py`
   - layout and app constants
 
-- `linux/hyprland/mousetrap_hyprland/core.py`
+- `packages/linux/mousetrap_hyprland/core.py`
   - basic grid math and key->cell lookup
 
-- `linux/hyprland/mousetrap_hyprland/session.py`
+- `packages/linux/mousetrap_hyprland/session.py`
   - simple overlay session / key resolution logic
 
-- `linux/hyprland/mousetrap_hyprland/hyprctl.py`
+- `packages/linux/mousetrap_hyprland/hyprctl.py`
   - Hyprland IPC adapter
 
-- `linux/hyprland/mousetrap_hyprland/geometry.py`
+- `packages/linux/mousetrap_hyprland/geometry.py`
   - active-window-first geometry resolution
 
-- `linux/hyprland/mousetrap_hyprland/timings.py`
+- `packages/linux/mousetrap_hyprland/timings.py`
   - central timing constants for overlay teardown / warp / click
 
-- `linux/hyprland/mousetrap_hyprland/clicking.py`
+- `packages/linux/mousetrap_hyprland/clicking.py`
   - click backend abstraction, currently via `ydotool`
 
-- `linux/hyprland/mousetrap_hyprland/actions.py`
+- `packages/linux/mousetrap_hyprland/actions.py`
   - higher-level actions such as `move_and_click`
 
-- `linux/hyprland/mousetrap_hyprland/launcher.py`
+- `packages/linux/mousetrap_hyprland/launcher.py`
   - detached overlay launch helper
 
-- `linux/hyprland/mousetrap_hyprland/cli.py`
+- `packages/linux/mousetrap_hyprland/cli.py`
   - main CLI entrypoint for activate / overlay / select / cancel
 
-- `linux/hyprland/mousetrap_hyprland/overlay.py`
+- `packages/linux/mousetrap_hyprland/overlay.py`
   - GTK4 layer-shell fullscreen overlay renderer
 
-- `linux/hyprland/mousetrap_hyprland/app.py`
+- `packages/linux/mousetrap_hyprland/app.py`
   - simple package app entrypoint
 
 ### What currently works
