@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+
 from .config import ROWS
+
 
 @dataclass(frozen=True)
 class CellTarget:
@@ -24,10 +26,17 @@ def find_cell_for_key(key: str):
     return None
 
 
-def cell_center(bounds: tuple[int, int, int, int], target: CellTarget) -> tuple[int, int]:
+def cell_bounds(bounds: tuple[int, int, int, int], target: CellTarget) -> tuple[int, int, int, int]:
     x, y, width, height = bounds
     col_w = width / target.column_count
     row_h = height / target.row_count
-    cx = x + int((target.column + 0.5) * col_w)
-    cy = y + int((target.row + 0.5) * row_h)
-    return cx, cy
+    left = x + int(target.column * col_w)
+    top = y + int(target.row * row_h)
+    right = x + int((target.column + 1) * col_w)
+    bottom = y + int((target.row + 1) * row_h)
+    return left, top, max(1, right - left), max(1, bottom - top)
+
+
+def cell_center(bounds: tuple[int, int, int, int], target: CellTarget) -> tuple[int, int]:
+    left, top, width, height = cell_bounds(bounds, target)
+    return left + width // 2, top + height // 2

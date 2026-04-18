@@ -17,6 +17,8 @@ class Settings:
     pre_warp_delay_seconds: float = 0.05
     post_warp_delay_seconds: float = 0.18
     click_backend: str = 'ydotool'
+    refinement_steps: int = 3
+    session_timeout_seconds: float = 8.0
     bundle_ydotool_in_release: bool = True
 
     @classmethod
