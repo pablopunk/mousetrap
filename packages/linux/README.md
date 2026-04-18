@@ -14,7 +14,7 @@ Hyprland-specific implementation of Mousetrap.
 - `mousetrap_hyprland/geometry.py`: active-window-first geometry resolution
 - `mousetrap_hyprland/clicking.py`: click backend abstraction
 - `mousetrap_hyprland/actions.py`: higher-level actions
-- `activate.sh`, `select.sh`, `cancel.sh`: tiny wrappers around the CLI
+- `activate.sh`, `key_down.sh`, `key_up.sh`, `cancel.sh`: tiny wrappers around the CLI
 - `mousetrap.conf`: example Hyprland config
 
 ## Install
@@ -42,7 +42,8 @@ systemctl --user enable --now ydotool.service
 
 ```bash
 bash packages/linux/activate.sh
-bash packages/linux/select.sh a
+bash packages/linux/key_down.sh a
+bash packages/linux/key_up.sh a
 bash packages/linux/cancel.sh
 ```
 
@@ -118,6 +119,7 @@ This still creates a dev tarball in `dist/linux/`, but it is no longer the prefe
 - Hyprland submap-driven key selection path is implemented
 - Three-step refinement session is implemented
 - Basic chord targeting is implemented for adjacent pairs and 2x2 quads
+- Chords now commit on key release, closer to macOS behavior
 - Final step performs `move + left click`
 - Runtime dependency diagnostics are available
 - Settings are now configurable via a user config file
