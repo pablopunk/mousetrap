@@ -95,6 +95,10 @@ make install-linux-arch-local
 
 This builds a local Arch package that declares normal pacman dependencies such as `ydotool`, `gtk4`, `python-gobject`, and `gtk4-layer-shell`.
 
+### AUR-friendly package
+
+Right now, the best AUR path is the `mousetrap-hyprland-git` package in `packaging/aur/`, because the existing stable tags predate the Linux package layout.
+
 ### Dev tarball
 
 ```bash

@@ -85,7 +85,13 @@ make build-linux
 make doctor-linux
 make config-linux
 make package-linux
+make package-linux-arch
 ```
+
+## Linux packaging
+
+- `packaging/aur/`: AUR-friendly `mousetrap-hyprland-git` package files for the current Linux branch state
+- `packaging/arch/`: stable Arch package recipe intended for the first Linux-capable tagged release
 
 ## Repository Structure
 

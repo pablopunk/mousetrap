@@ -27,5 +27,7 @@ make install-linux-arch-local
 
 ## Notes
 
-The PKGBUILD currently builds from a tagged GitHub release tarball (`v$VERSION`).
+The `packaging/arch/PKGBUILD` is the future stable-package recipe and expects a tagged GitHub release tarball (`v$VERSION`) that already contains `packages/linux/`.
 For local iteration, the Make targets generate a temporary PKGBUILD with the current repo snapshot.
+
+For AUR publication **right now**, use `packaging/aur/` and publish the `mousetrap-hyprland-git` package first.
