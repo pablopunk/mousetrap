@@ -1,0 +1,48 @@
+# Maintainer: Pablo Varela <pablopunk@pm.me>
+
+pkgname=mousetrap-hyprland-git
+pkgver=0.3.2.r2.gaa53cea
+pkgrel=1
+pkgdesc='Keyboard-driven mouse targeting for Hyprland (git)'
+arch=('any')
+url='https://github.com/pablopunk/mousetrap'
+license=('GPL-3.0-or-later')
+depends=(
+  'python'
+  'python-gobject'
+  'python-cairo'
+  'gtk4'
+  'gtk4-layer-shell'
+  'hyprland'
+  'jq'
+  'ydotool'
+)
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools')
+provides=('mousetrap-hyprland')
+conflicts=('mousetrap-hyprland')
+source=('git+https://github.com/pablopunk/mousetrap.git#branch=linux')
+sha256sums=('SKIP')
+install=mousetrap-hyprland.install
+
+pkgver() {
+  cd mousetrap
+  local base
+  base="$(tr -d '[:space:]' < VERSION)"
+  printf '%s.r%s.g%s' "$base" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+  cd mousetrap/packages/linux
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd mousetrap
+  python -m installer --destdir="$pkgdir" packages/linux/dist/*.whl
+  install -Dm755 packages/linux/activate.sh "$pkgdir/usr/bin/mousetrap-hyprland-activate"
+  install -Dm755 packages/linux/select.sh "$pkgdir/usr/bin/mousetrap-hyprland-select"
+  install -Dm755 packages/linux/cancel.sh "$pkgdir/usr/bin/mousetrap-hyprland-cancel"
+  install -Dm644 packages/linux/mousetrap.conf "$pkgdir/usr/share/doc/$pkgname/mousetrap.conf"
+  install -Dm644 packages/linux/README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README-repo.md"
+}
