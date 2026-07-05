@@ -2,13 +2,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MAC_DIR="$ROOT/packages/mac"
-cd "$MAC_DIR"
+cd "$ROOT"
 
 APP_NAME="Mousetrap"
 CONFIGURATION="${CONFIGURATION:-release}"
 ARTIFACTS_DIR="${ARTIFACTS_DIR:-$ROOT/dist}"
-APP_PATH="$MAC_DIR/.build/$CONFIGURATION/$APP_NAME.app"
+APP_PATH="$ROOT/.build/$CONFIGURATION/$APP_NAME.app"
 ZIP_PATH="$ARTIFACTS_DIR/$APP_NAME.zip"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-Mousetrap}"
