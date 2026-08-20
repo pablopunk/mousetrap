@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT"
+MAC_DIR="$ROOT/packages/mac"
+cd "$MAC_DIR"
 
 CONFIGURATION="${CONFIGURATION:-debug}"
 APP_NAME="${APP_NAME:-Mousetrap}"
@@ -11,7 +12,7 @@ EXECUTABLE_NAME="${EXECUTABLE_NAME:-Mousetrap}"
 VERSION_FILE="$ROOT/VERSION"
 APP_VERSION="${APP_VERSION:-$(tr -d '[:space:]' < "$VERSION_FILE")}" 
 BUILD_NUMBER="${BUILD_NUMBER:-$APP_VERSION}"
-BUILD_DIR="$ROOT/.build/$CONFIGURATION"
+BUILD_DIR="$MAC_DIR/.build/$CONFIGURATION"
 STAGING_APP_DIR="$BUILD_DIR/$APP_NAME.app"
 INSTALL_DIR="${INSTALL_DIR:-/Applications}"
 INSTALLED_APP_DIR="$INSTALL_DIR/$APP_NAME.app"
