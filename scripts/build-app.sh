@@ -58,6 +58,41 @@ fi
 
 swift build -c "$CONFIGURATION"
 
+# Patch KeyboardShortcuts resource bundle accessor to also check Contents/Resources.
+# SPM generates an accessor that only checks Bundle.main.bundleURL/*.bundle (app root),
+# which is an unsealed location for a code-signed .app ("unsealed contents" error).
+# The bundle must live in Contents/Resources, so we patch the accessor to check there
+# (and also via resourceURL) before falling back to the build directory.
+for accessor in $(find "$ROOT/.build" -name "resource_bundle_accessor.swift" -path "*KeyboardShortcuts*" 2>/dev/null); do
+  if grep -q "Contents/Resources" "$accessor" 2>/dev/null; then
+    continue
+  fi
+  echo "Patching KeyboardShortcuts resource bundle accessor: $accessor"
+  buildPath=$(grep -o 'let buildPath = "[^"]*"' "$accessor" | head -1 | sed -E 's/.*"(.*)"/\1/')
+  cat > "$accessor" <<PATCH_EOF
+import Foundation
+
+extension Foundation.Bundle {
+    static let module: Bundle = {
+        let bundleName = "KeyboardShortcuts_KeyboardShortcuts.bundle"
+        let mainPath = Bundle.main.bundleURL.appendingPathComponent(bundleName).path
+        let resourcePath = Bundle.main.resourceURL?.appendingPathComponent(bundleName).path
+        let contentsResourcesPath = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/\(bundleName)").path
+        let buildPath = "$buildPath"
+        for candidate in [mainPath, resourcePath, contentsResourcesPath, buildPath].compactMap({ $0 }) {
+            if let bundle = Bundle(path: candidate) {
+                return bundle
+            }
+        }
+        Swift.fatalError("could not load resource bundle: from \(mainPath) or \(resourcePath ?? "-") or \(contentsResourcesPath) or \(buildPath)")
+    }()
+}
+PATCH_EOF
+done
+if find "$ROOT/.build" -name "resource_bundle_accessor.swift" -path "*KeyboardShortcuts*" -exec grep -l "Contents/Resources" {} \; 2>/dev/null | grep -q .; then
+  swift build -c "$CONFIGURATION"
+fi
+
 if [[ ! -f "$APP_ICON_FILE" ]]; then
   echo "App icon not found: $APP_ICON_FILE" >&2
   echo "Generate it manually with: ./scripts/generate-icons.sh" >&2
@@ -76,6 +111,16 @@ if [[ -f "$ROOT/assets/minimal-icon.png" ]]; then
 fi
 
 cp "$VERSION_FILE" "$STAGING_APP_DIR/Contents/Resources/VERSION"
+
+# Copy SPM resource bundles (e.g. KeyboardShortcuts_KeyboardShortcuts.bundle) into the app.
+# They are built to $BUILD_DIR/*.bundle; place them in Contents/Resources (sealed location).
+for bundle in "$BUILD_DIR"/*.bundle; do
+  if [[ -e "$bundle" ]]; then
+    echo "Copying resource bundle $(basename "$bundle")"
+    rm -rf "$STAGING_APP_DIR/Contents/Resources/$(basename "$bundle")"
+    cp -R "$bundle" "$STAGING_APP_DIR/Contents/Resources/$(basename "$bundle")"
+  fi
+done
 
 cat > "$STAGING_APP_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
