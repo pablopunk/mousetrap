@@ -58,36 +58,13 @@ fi
 
 swift build -c "$CONFIGURATION"
 
-# Patch KeyboardShortcuts resource bundle accessor to also check Contents/Resources.
-# SPM generates an accessor that only checks Bundle.main.bundleURL/*.bundle (app root),
-# which is an unsealed location for a code-signed .app ("unsealed contents" error).
-# The bundle must live in Contents/Resources, so we patch the accessor to check there
-# (and also via resourceURL) before falling back to the build directory.
+# Patch SPM's generated KeyboardShortcuts Bundle.module (see KeyboardShortcutsBundleAccessor.swift.template).
+# SPM only checks app-root + hardcoded build dir; Contents/Resources is the sealed location.
 for accessor in $(find "$ROOT/.build" -name "resource_bundle_accessor.swift" -path "*KeyboardShortcuts*" 2>/dev/null); do
-  if grep -q "Contents/Resources" "$accessor" 2>/dev/null; then
-    continue
-  fi
+  grep -q "Contents/Resources" "$accessor" 2>/dev/null && continue
   echo "Patching KeyboardShortcuts resource bundle accessor: $accessor"
   buildPath=$(grep -o 'let buildPath = "[^"]*"' "$accessor" | head -1 | sed -E 's/.*"(.*)"/\1/')
-  cat > "$accessor" <<PATCH_EOF
-import Foundation
-
-extension Foundation.Bundle {
-    static let module: Bundle = {
-        let bundleName = "KeyboardShortcuts_KeyboardShortcuts.bundle"
-        let mainPath = Bundle.main.bundleURL.appendingPathComponent(bundleName).path
-        let resourcePath = Bundle.main.resourceURL?.appendingPathComponent(bundleName).path
-        let contentsResourcesPath = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/\(bundleName)").path
-        let buildPath = "$buildPath"
-        for candidate in [mainPath, resourcePath, contentsResourcesPath, buildPath].compactMap({ $0 }) {
-            if let bundle = Bundle(path: candidate) {
-                return bundle
-            }
-        }
-        Swift.fatalError("could not load resource bundle: from \(mainPath) or \(resourcePath ?? "-") or \(contentsResourcesPath) or \(buildPath)")
-    }()
-}
-PATCH_EOF
+  sed "s|__BUILD_PATH__|$buildPath|g" "$ROOT/scripts/KeyboardShortcutsBundleAccessor.swift.template" > "$accessor"
 done
 if find "$ROOT/.build" -name "resource_bundle_accessor.swift" -path "*KeyboardShortcuts*" -exec grep -l "Contents/Resources" {} \; 2>/dev/null | grep -q .; then
   swift build -c "$CONFIGURATION"
