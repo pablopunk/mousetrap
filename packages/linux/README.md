@@ -67,9 +67,10 @@ input-capture work below for the bind-free flow.
 
 - [x] Layer-shell overlay on the focused monitor (multi-monitor safe)
 - [x] Three-step refinement, chord targeting (pairs + 2x2 quads)
-- [x] Cursor warp + click via uinput
+- [x] Cursor warp + click via uinput (udev/input-group permission needed)
+- [x] Tray presence via StatusNotifierItem (SNI) with DBusMenu
+- [x] Keyboard capture via evdev + EVIOCGRAB (no compositor binds needed)
 - [x] Daemon + UNIX-socket IPC (CLI latency ~1ms)
-- [ ] StatusNotifierItem tray presence
-- [ ] libei input capture (bind-free keyboard input)
+- [x] Safety nets: watchdog thread, grab self-release, graceful tray Quit
 - [ ] Right-click / double-click / drag, free-mouse mode
 - [ ] Settings UI parity with macOS
