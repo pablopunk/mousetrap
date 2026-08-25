@@ -16,8 +16,10 @@ mod doctor;
 mod geometry;
 mod input;
 mod ipc;
+mod keys;
 mod overlay;
 mod state;
+mod tray;
 
 fn usage() -> ! {
     eprintln!(

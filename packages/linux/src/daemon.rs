@@ -9,6 +9,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
 use std::sync::mpsc as std_mpsc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use calloop::channel::{channel, Event as ChannelEvent};
@@ -33,8 +34,10 @@ use wayland_client::{Connection, QueueHandle};
 use crate::config::Settings;
 use crate::input::VirtualPointer;
 use crate::ipc::{self, Request, Response};
+use crate::keys::{KeyEvent, KeyboardGrab};
 use crate::overlay::Overlay;
 use crate::state::{KeyResult, OverlaySession, SelectionResult, SessionState};
+use crate::tray::TrayEvent;
 
 // ---------------------------------------------------------------------------
 // Wayland delegate wiring
@@ -59,8 +62,17 @@ pub struct Daemon {
     pub session: Option<OverlaySession>,
     pub pointer: Option<VirtualPointer>,
     pub pointer_warning: Option<String>,
+    pub keyboard: Option<KeyboardGrab>,
+    pub keyboard_warning: Option<String>,
 
     action: Option<PendingAction>,
+    keys_tx: calloop::channel::Sender<KeyEvent>,
+    /// Heartbeat updated by the main loop; a watchdog thread force-exits the
+    /// daemon if it ever goes stale (defense against loop wedges).
+    heartbeat: Arc<std::sync::atomic::AtomicU64>,
+    /// Timestamp of the last key event processed by the main loop (nanos).
+    /// Anchors the keyboard reader's failsafe deadline.
+    key_processed_at: Arc<std::sync::atomic::AtomicU64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,7 +93,11 @@ struct PendingAction {
 }
 
 impl Daemon {
-    fn new(globals: &GlobalList, qh: QueueHandle<Daemon>) -> Result<Self, String> {
+    fn new(
+        globals: &GlobalList,
+        qh: QueueHandle<Daemon>,
+        keys_tx: calloop::channel::Sender<KeyEvent>,
+    ) -> Result<Self, String> {
         let registry_state = RegistryState::new(globals);
         let compositor =
             CompositorState::bind(globals, &qh).map_err(|e| format!("wl_compositor: {e:?}"))?;
@@ -101,7 +117,12 @@ impl Daemon {
             session: None,
             pointer: None,
             pointer_warning: None,
+            keyboard: None,
+            keyboard_warning: None,
             action: None,
+            keys_tx,
+            heartbeat: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            key_processed_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         })
     }
 
@@ -131,6 +152,19 @@ impl Daemon {
                 Err(e) => self.pointer_warning = Some(e.to_string()),
             }
         }
+        if self.keyboard.is_none() {
+            match KeyboardGrab::start(
+                self.keys_tx.clone(),
+                self.settings.session_timeout_seconds,
+                self.key_processed_at.clone(),
+            ) {
+                Ok(grab) => {
+                    self.keyboard = Some(grab);
+                    self.keyboard_warning = None;
+                }
+                Err(e) => self.keyboard_warning = Some(e),
+            }
+        }
         let state = SessionState::start(self.overlay.bounds);
         let session = OverlaySession::new(state.clone());
         self.session = Some(session);
@@ -140,10 +174,17 @@ impl Daemon {
             overlay.state = Some(state);
             overlay.show();
         }
+        let mut warnings = Vec::new();
         if let Some(warning) = &self.pointer_warning {
-            Response::ok(format!("activated (clicks disabled: {warning})"))
-        } else {
+            warnings.push(format!("clicks disabled: {warning}"));
+        }
+        if let Some(warning) = &self.keyboard_warning {
+            warnings.push(format!("keyboard capture unavailable: {warning}"));
+        }
+        if warnings.is_empty() {
             Response::ok("activated")
+        } else {
+            Response::ok(format!("activated ({})", warnings.join("; ")))
         }
     }
 
@@ -158,7 +199,7 @@ impl Daemon {
         match session.key_down(key) {
             KeyResult::Invalid => Response::err("key not on grid"),
             _ => {
-                self.refresh_overlay();
+                // Pending keys have no visual effect; skip the redraw.
                 Response::ok("pending")
             }
         }
@@ -188,6 +229,11 @@ impl Daemon {
             self.cancel_session();
             return Response::err(format!("clicks disabled: {warning}"));
         }
+        // Release the keyboard grab first: the click lands on the app under
+        // the pointer, and any further keystrokes must reach it.
+        if let Some(mut keyboard) = self.keyboard.take() {
+            keyboard.stop();
+        }
         let point = selection.point;
         self.session = None;
         let Daemon { overlay, .. } = self;
@@ -203,11 +249,20 @@ impl Daemon {
     }
 
     fn cancel_session(&mut self) {
+        eprintln!("mousetrap: trace: cancel_session begin");
+        // Release the keyboard grab first so keystrokes resume reaching
+        // applications immediately.
+        if let Some(mut keyboard) = self.keyboard.take() {
+            keyboard.stop();
+        }
+        eprintln!("mousetrap: trace: keyboard stopped");
         self.session = None;
         self.action = None;
         let Daemon { overlay, .. } = self;
         overlay.hide();
+        eprintln!("mousetrap: trace: overlay hidden");
         self.run_optional_command(&self.settings.on_cancel_command.clone());
+        eprintln!("mousetrap: trace: cancel_session end");
     }
 
     fn refresh_overlay(&mut self) {
@@ -230,6 +285,7 @@ impl Daemon {
     /// Advance the pending action when its phase deadline passes.
     fn advance_action(&mut self) {
         let Some(action) = self.action else { return };
+        let clicks_enabled = self.settings.click_backend != "none";
         match action.phase {
             Phase::Dismiss => {
                 self.action = Some(PendingAction {
@@ -240,10 +296,12 @@ impl Daemon {
                 });
             }
             Phase::Move => {
-                let (w, h) = self.overlay.size;
-                if let Some(pointer) = self.pointer.as_mut() {
-                    if let Err(e) = pointer.move_abs(action.point.0, action.point.1, w as i32, h as i32) {
-                        eprintln!("mousetrap: cursor move failed: {e}");
+                if clicks_enabled {
+                    let (w, h) = self.overlay.size;
+                    if let Some(pointer) = self.pointer.as_mut() {
+                        if let Err(e) = pointer.move_abs(action.point.0, action.point.1, w as i32, h as i32) {
+                            eprintln!("mousetrap: cursor move failed: {e}");
+                        }
                     }
                 }
                 self.action = Some(PendingAction {
@@ -254,9 +312,11 @@ impl Daemon {
                 });
             }
             Phase::Click => {
-                if let Some(pointer) = self.pointer.as_mut() {
-                    if let Err(e) = pointer.left_click() {
-                        eprintln!("mousetrap: click failed: {e}");
+                if clicks_enabled {
+                    if let Some(pointer) = self.pointer.as_mut() {
+                        if let Err(e) = pointer.left_click() {
+                            eprintln!("mousetrap: click failed: {e}");
+                        }
                     }
                 }
                 self.action = None;
@@ -280,8 +340,10 @@ impl Daemon {
 
     /// Periodic tick: enforce the session timeout.
     fn tick(&mut self) {
+        self.heartbeat.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if let Some(session) = &self.session {
             if session.state.has_timed_out(self.settings.session_timeout_seconds) {
+                eprintln!("mousetrap: session timed out; cancelling");
                 self.cancel_session();
             }
         }
@@ -503,7 +565,8 @@ pub fn run() -> i32 {
         }
     };
     let qh = event_queue.handle();
-    let mut daemon = match Daemon::new(&globals, qh.clone()) {
+    let (keys_tx, keys_rx) = channel::<KeyEvent>();
+    let mut daemon = match Daemon::new(&globals, qh.clone(), keys_tx) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("mousetrap: {e} (is this a wlr-layer-shell compositor?)");
@@ -520,9 +583,30 @@ pub fn run() -> i32 {
     };
     let handle = event_loop.handle();
 
+    // Watchdog: if the main loop stops beating (wedge), force-exit so the
+    // kernel releases the keyboard grab and the overlay dies with us.
+    let heartbeat = daemon.heartbeat.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(5));
+        loop {
+            let last = heartbeat.load(std::sync::atomic::Ordering::Relaxed);
+            std::thread::sleep(Duration::from_secs(1));
+            let now = heartbeat.load(std::sync::atomic::Ordering::Relaxed);
+            if now == last && now != 0 {
+                eprintln!("mousetrap: watchdog: main loop stalled; exiting");
+                std::process::exit(1);
+            }
+        }
+    });
+
     if let Err(e) = handle.insert_source(WaylandSource::new(conn.clone(), event_queue), |_, queue, data| {
         match queue.dispatch_pending(data) {
-            Ok(count) => Ok(count),
+            Ok(count) => {
+                if count > 0 {
+                    eprintln!("mousetrap: trace: wayland dispatched {count}");
+                }
+                Ok(count)
+            }
             Err(err) => {
                 eprintln!("mousetrap: wayland error: {err:?}; exiting");
                 std::process::exit(1);
@@ -539,6 +623,7 @@ pub fn run() -> i32 {
     std::thread::spawn(move || ipc_accept_loop(listener, ipc_tx));
     if let Err(e) = handle.insert_source(ipc_rx, |event, _, app| {
         if let ChannelEvent::Msg((request, reply)) = event {
+            app.heartbeat.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let response = app.process_request(request);
             let _ = reply.send(response);
         }
@@ -547,9 +632,72 @@ pub fn run() -> i32 {
         return 1;
     }
 
+    // Keyboard grab events (evdev).
+    if let Err(e) = handle.insert_source(keys_rx, |event, _, app| {
+        if let ChannelEvent::Msg(event) = event {
+            eprintln!("mousetrap: trace: key event processed");
+            app.heartbeat.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            app.key_processed_at.store(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0),
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            match event {
+                KeyEvent::KeyDown(key) => {
+                    let _ = app.key_down(&key);
+                }
+                KeyEvent::KeyUp(key) => {
+                    let _ = app.key_up(&key);
+                }
+                KeyEvent::Escape => app.cancel_session(),
+            }
+        }
+    }) {
+        eprintln!("mousetrap: cannot start keyboard source: {e}");
+        return 1;
+    }
+
+    // Tray (StatusNotifierItem over DBus).
+    let (tray_tx, tray_rx) = channel::<TrayEvent>();
+    crate::tray::spawn(tray_tx);
+    if let Err(e) = handle.insert_source(tray_rx, |event, _, app| {
+        if let ChannelEvent::Msg(event) = event {
+            match event {
+                TrayEvent::Activate => {
+                    let _ = app.process_request(Request::Activate);
+                }
+                TrayEvent::Cancel => {
+                    let _ = app.process_request(Request::Cancel);
+                }
+                TrayEvent::Quit => {
+                    app.cancel_session();
+                    // Never exit abruptly: the tray host may still be
+                    // processing this menu click (a DBus call in flight).
+                    // An immediate process::exit here has wedged quickshell's
+                    // main thread in the past. Exit on a delay so the DBus
+                    // reply lands first.
+                    std::thread::spawn(|| {
+                        std::thread::sleep(Duration::from_millis(500));
+                        std::process::exit(0);
+                    });
+                }
+            }
+        }
+    }) {
+        eprintln!("mousetrap: cannot start tray source: {e}");
+        return 1;
+    }
+
     // Periodic session-timeout check.
     let tick = Timer::from_duration(Duration::from_millis(500));
-    if let Err(e) = handle.insert_source(tick, |_, _, app| {
+    let mut tick_count: u64 = 0;
+    if let Err(e) = handle.insert_source(tick, move |_, _, app| {
+        tick_count += 1;
+        if tick_count % 20 == 0 {
+            eprintln!("mousetrap: trace: tick alive (#{tick_count})");
+        }
         app.tick();
         TimeoutAction::ToDuration(Duration::from_millis(500))
     }) {

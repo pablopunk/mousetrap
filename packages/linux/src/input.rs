@@ -125,11 +125,14 @@ impl VirtualPointer {
             ioctl_u32(fd, UI_SET_KEYBIT, BTN_MIDDLE as u32)?;
             ioctl_u32(fd, UI_SET_ABSBIT, ABS_X as u32)?;
             ioctl_u32(fd, UI_SET_ABSBIT, ABS_Y as u32)?;
-            ioctl_u32(fd, UI_DEV_CREATE, 0)?;
         }
 
         let mut pointer = Self { file };
+        // The device description must be written BEFORE UI_DEV_CREATE.
         pointer.write_dev(&dev)?;
+        unsafe {
+            ioctl_u32(pointer.file.as_raw_fd(), UI_DEV_CREATE, 0)?;
+        }
         Ok(pointer)
     }
 
@@ -209,5 +212,16 @@ impl Drop for VirtualPointer {
         unsafe {
             let _ = libc::ioctl(self.file.as_raw_fd(), UI_DEV_DESTROY as libc::c_ulong, 0);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uinput_device_creates() {
+        let pointer = VirtualPointer::new();
+        assert!(pointer.is_ok(), "VirtualPointer::new failed: {:?}", pointer.err());
     }
 }

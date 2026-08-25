@@ -1,9 +1,9 @@
-//! Wayland layer-shell overlay, rendered into a `wl_shm` buffer with
-//! tiny-skia (pure Rust, no C dependencies).
+//! Wayland layer-shell overlay, rendered into a `wl_shm` buffer.
 //!
-//! The layer surface is created without an explicit output, so the
-//! compositor assigns it to the focused output — this is what makes the
-//! grid appear on the active monitor on any wlr-layer-shell compositor.
+//! Drawing is done by hand: axis-aligned rectangles and text only, with
+//! strictly bounded loops. A third-party rasterizer (tiny-skia) previously
+//! hung in an infinite loop on degenerate grid geometry — manual blending
+//! cannot.
 
 use std::sync::OnceLock;
 
@@ -15,7 +15,6 @@ use sctk::{
     shm::slot::{Buffer, SlotPool},
     shm::Shm,
 };
-use tiny_skia::{Color, FillRule, Paint, PathBuilder, PixmapMut, Rect, Stroke, Transform};
 use wayland_client::{
     protocol::{wl_shm, wl_surface::WlSurface},
     QueueHandle,
@@ -116,14 +115,20 @@ impl Overlay {
 
     /// Unmap and tear down the layer surface.
     pub fn hide(&mut self) {
+        eprintln!("mousetrap: trace: overlay hide begin");
         self.shown = false;
         self.state = None;
         self.needs_redraw = false;
         self.layer_surface = None;
+        eprintln!("mousetrap: trace: layer surface dropped");
         self.surface = None;
+        eprintln!("mousetrap: trace: surface dropped");
         self.buffer = None;
+        eprintln!("mousetrap: trace: buffer dropped");
         self.pool = None;
+        eprintln!("mousetrap: trace: pool dropped");
         self.configured = false;
+        eprintln!("mousetrap: trace: overlay hide end");
     }
 
     fn commit(&self) {
@@ -177,11 +182,7 @@ impl Overlay {
         };
         self.buffer = Some(buffer);
 
-        let mut pixmap = match PixmapMut::from_bytes(canvas, pw, ph) {
-            Some(p) => p,
-            None => return,
-        };
-        draw_grid(&mut pixmap, pw, ph, scale, self.bounds, self.state.as_ref());
+        draw_grid(canvas, pw as usize, ph as usize, scale, self.state.as_ref());
 
         if let Some(surface) = &self.surface {
             if let Some(buffer) = &self.buffer {
@@ -197,39 +198,71 @@ impl Overlay {
     }
 }
 
-fn rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
-    Rect::from_xywh(x, y, w, h).expect("valid rect")
+// ---------------------------------------------------------------------------
+// Manual rasterization (bounded loops only; can never spin).
+// ---------------------------------------------------------------------------
+
+/// Blend an unpremultiplied source color (r,g,b 0..=255, coverage `a`
+/// 0..=1) into a premultiplied ARGB8888 pixel. Integer math only.
+#[inline]
+fn blend_pixel(dst: &mut [u8], r: u8, g: u8, b: u8, a: f32) {
+    let a = (a.clamp(0.0, 1.0) * 255.0) as u32;
+    let d1 = dst[1] as u32;
+    let d2 = dst[2] as u32;
+    let d3 = dst[3] as u32;
+    let d0 = dst[0] as u32;
+    dst[1] = ((r as u32 * a + d1 * (255 - a)) >> 8) as u8;
+    dst[2] = ((g as u32 * a + d2 * (255 - a)) >> 8) as u8;
+    dst[3] = ((b as u32 * a + d3 * (255 - a)) >> 8) as u8;
+    dst[0] = ((255 * a + d0 * (255 - a)) >> 8) as u8;
 }
 
-fn draw_grid(
-    pix: &mut PixmapMut,
-    pw: u32,
-    ph: u32,
-    scale: u32,
-    bounds: Bounds,
-    state: Option<&SessionState>,
-) {
+/// Fill an axis-aligned rectangle (float coords), clipped to the canvas.
+fn fill_rect(canvas: &mut [u8], width: usize, height: usize, x: f32, y: f32, w: f32, h: f32, r: u8, g: u8, b: u8, a: f32) {
+    if a <= 0.0 {
+        return;
+    }
+    let x0 = x.floor().max(0.0) as usize;
+    let y0 = y.floor().max(0.0) as usize;
+    let x1 = ((x + w).ceil().max(0.0) as usize).min(width);
+    let y1 = ((y + h).ceil().max(0.0) as usize).min(height);
+    for py in y0..y1 {
+        let row = py * width;
+        for px in x0..x1 {
+            blend_pixel(&mut canvas[(row + px) * 4..(row + px) * 4 + 4], r, g, b, a);
+        }
+    }
+}
+
+/// Stroke a rectangle by filling its four edges.
+fn stroke_rect(canvas: &mut [u8], width: usize, height: usize, x: f32, y: f32, w: f32, h: f32, thickness: f32, r: u8, g: u8, b: u8, a: f32) {
+    if thickness <= 0.0 || w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    fill_rect(canvas, width, height, x, y, w, thickness.min(h), r, g, b, a); // top
+    fill_rect(canvas, width, height, x, y + h - thickness, w, thickness.min(h), r, g, b, a); // bottom
+    fill_rect(canvas, width, height, x, y, thickness.min(w), h, r, g, b, a); // left
+    fill_rect(canvas, width, height, x + w - thickness, y, thickness.min(w), h, r, g, b, a); // right
+}
+
+fn draw_grid(canvas: &mut [u8], width: usize, height: usize, scale: u32, state: Option<&SessionState>) {
     let s = scale as f32;
-    // Clear to transparent.
-    pix.fill(Color::TRANSPARENT);
+    let (w, h) = (width as f32, height as f32);
 
     // Dim the whole output.
-    fill_rect(
-        pix,
-        rect(0.0, 0.0, pw as f32, ph as f32),
-        Color::from_rgba8(0, 0, 0, (OVERLAY_ALPHA * 255.0) as u8),
-    );
+    fill_rect(canvas, width, height, 0.0, 0.0, w, h, 0, 0, 0, OVERLAY_ALPHA);
 
     let Some(state) = state else { return };
     let (bx, by, bw, bh) = state.current_bounds;
-    let bx = bx as f32 * s;
-    let by = by as f32 * s;
-    let bw = bw as f32 * s;
-    let bh = bh as f32 * s;
+    // Clamp to sane, finite values inside the canvas.
+    let bx = (bx as f32).clamp(-(w as f32), w as f32) * s;
+    let by = (by as f32).clamp(-(h as f32), h as f32) * s;
+    let bw = ((bw as f32).clamp(1.0, w as f32) * s).max(1.0);
+    let bh = ((bh as f32).clamp(1.0, h as f32) * s).max(1.0);
 
     // Current region: subtle white fill + border.
-    fill_rect(pix, rect(bx, by, bw, bh), Color::from_rgba8(255, 255, 255, 20));
-    stroke_rect(pix, rect(bx, by, bw, bh), Color::from_rgba8(255, 255, 255, 115), 2.0);
+    fill_rect(canvas, width, height, bx, by, bw, bh, 255, 255, 255, 20.0 / 255.0);
+    stroke_rect(canvas, width, height, bx, by, bw, bh, 2.0 * s, 255, 255, 255, 115.0 / 255.0);
 
     // Cells with key labels.
     let row_h = bh / ROWS.len() as f32;
@@ -238,38 +271,36 @@ fn draw_grid(
         for (c, ch) in row.chars().enumerate() {
             let x = bx + c as f32 * col_w + CELL_PADDING * s;
             let y = by + r as f32 * row_h + CELL_PADDING * s;
-            let w = col_w - 2.0 * CELL_PADDING * s;
-            let h = row_h - 2.0 * CELL_PADDING * s;
-            fill_rect(pix, rect(x, y, w, h), Color::from_rgba8(255, 255, 255, 31));
-            stroke_rect(pix, rect(x, y, w, h), Color::from_rgba8(255, 255, 255, 71), 1.0);
-            let font_size = (10.0 * s).max(w.min(h) * 0.33);
+            let cw = col_w - 2.0 * CELL_PADDING * s;
+            let chh = row_h - 2.0 * CELL_PADDING * s;
+            if cw <= 0.0 || chh <= 0.0 {
+                continue;
+            }
+            fill_rect(canvas, width, height, x, y, cw, chh, 255, 255, 255, 31.0 / 255.0);
+            stroke_rect(canvas, width, height, x, y, cw, chh, 1.0 * s, 255, 255, 255, 71.0 / 255.0);
+            let font_size = (10.0 * s).max(cw.min(chh) * 0.33);
             let label = ch.to_uppercase().to_string();
-            draw_text(pix, &label, font_size, x, y, w, h, Color::from_rgba8(255, 255, 255, 242));
+            draw_text(canvas, width, height, &label, font_size, x, y, cw, chh, 255, 255, 255, 242.0 / 255.0);
         }
     }
-    let _ = bounds;
 }
 
-fn fill_rect(pix: &mut PixmapMut, rect: Rect, color: Color) {
-    let mut paint = Paint::default();
-    paint.set_color(color);
-    paint.anti_alias = true;
-    let path = PathBuilder::from_rect(rect);
-    pix.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
-}
-
-fn stroke_rect(pix: &mut PixmapMut, rect: Rect, color: Color, width: f32) {
-    let mut paint = Paint::default();
-    paint.set_color(color);
-    paint.anti_alias = true;
-    let path = PathBuilder::from_rect(rect);
-    let stroke = Stroke { width, ..Stroke::default() };
-    pix.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
-}
-
-fn draw_text(pix: &mut PixmapMut, text: &str, size: f32, x: f32, y: f32, w: f32, h: f32, color: Color) {
+fn draw_text(
+    canvas: &mut [u8],
+    width: usize,
+    height: usize,
+    text: &str,
+    size: f32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    r: u8,
+    g: u8,
+    b: u8,
+    a: f32,
+) {
     let font = font();
-    // Measure.
     let mut total_width = 0.0;
     for ch in text.chars() {
         let (metrics, _) = font.rasterize(ch, size);
@@ -279,42 +310,26 @@ fn draw_text(pix: &mut PixmapMut, text: &str, size: f32, x: f32, y: f32, w: f32,
     let baseline = y + h * 0.78;
     for ch in text.chars() {
         let (metrics, bitmap) = font.rasterize(ch, size);
-        let gx = cursor + metrics.xmin as f32;
-        let gy = baseline + metrics.ymin as f32;
-        blend_bitmap(pix, &bitmap, metrics.width, metrics.height, gx, gy, color);
+        let gx = (cursor + metrics.xmin as f32) as i32;
+        let gy = (baseline + metrics.ymin as f32) as i32;
+        for row in 0..metrics.height {
+            let py = gy + row as i32;
+            if py < 0 || py as usize >= height {
+                continue;
+            }
+            for col in 0..metrics.width {
+                let px = gx + col as i32;
+                if px < 0 || px as usize >= width {
+                    continue;
+                }
+                let coverage = bitmap[row * metrics.width + col] as f32 / 255.0;
+                if coverage <= 0.0 {
+                    continue;
+                }
+                let idx = (py as usize * width + px as usize) * 4;
+                blend_pixel(&mut canvas[idx..idx + 4], r, g, b, a * coverage);
+            }
+        }
         cursor += metrics.advance_width;
-    }
-}
-
-/// Blend a coverage bitmap (alpha channel) into a premultiplied pixmap.
-fn blend_bitmap(pix: &mut PixmapMut, bitmap: &[u8], w: usize, h: usize, x: f32, y: f32, color: Color) {
-    let src_r = color.red();
-    let src_g = color.green();
-    let src_b = color.blue();
-    let color_alpha = color.alpha();
-    let pw = pix.width() as usize;
-    let ph = pix.height() as usize;
-    let data = pix.data_mut();
-    for row in 0..h {
-        let py = (y as i32) + row as i32;
-        if py < 0 || py as usize >= ph {
-            continue;
-        }
-        for col in 0..w {
-            let px = (x as i32) + col as i32;
-            if px < 0 || px as usize >= pw {
-                continue;
-            }
-            let a = bitmap[row * w + col] as f32 / 255.0 * color_alpha;
-            if a <= 0.0 {
-                continue;
-            }
-            let idx = (py as usize * pw + px as usize) * 4;
-            let dst = &mut data[idx..idx + 4];
-            dst[0] = (src_r * a + dst[0] as f32 * (1.0 - a)) as u8;
-            dst[1] = (src_g * a + dst[1] as f32 * (1.0 - a)) as u8;
-            dst[2] = (src_b * a + dst[2] as f32 * (1.0 - a)) as u8;
-            dst[3] = (a * 255.0 + dst[3] as f32 * (1.0 - a)) as u8;
-        }
     }
 }

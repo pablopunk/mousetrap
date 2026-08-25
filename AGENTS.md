@@ -12,4 +12,5 @@ Not following these rules have caused bugs in the past, so please do:
 * Hiding the menu bar icon must never make the app unreachable; reopening or reactivating the app must restore `showMenuBarIcon` / `MenuBarExtra` visibility.
 * Never modify the user's Hyprland (or other compositor/system) configuration without explicit, narrow approval. Mousetrap must not install or claim global keybindings by default; keyboard shortcuts are user-defined.
 * The Linux app is a tray-resident daemon (StatusNotifierItem), like the macOS menu bar app; activation from the tray must work without any compositor keybinds.
+* The Linux daemon must never exit abruptly while a tray host may have in-flight DBus interactions with it; teardown must deliver its DBus replies first and exit on a delay.
 
