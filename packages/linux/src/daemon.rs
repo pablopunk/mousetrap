@@ -67,6 +67,9 @@ pub struct Daemon {
 
     action: Option<PendingAction>,
     keys_tx: calloop::channel::Sender<KeyEvent>,
+    /// Timestamp of the last tray activate; used to debounce duplicate
+    /// click events from tray hosts (press + release double-firing).
+    last_tray_activate: Option<Instant>,
     /// Heartbeat updated by the main loop; a watchdog thread force-exits the
     /// daemon if it ever goes stale (defense against loop wedges).
     heartbeat: Arc<std::sync::atomic::AtomicU64>,
@@ -121,6 +124,7 @@ impl Daemon {
             keyboard_warning: None,
             action: None,
             keys_tx,
+            last_tray_activate: None,
             heartbeat: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             key_processed_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         })
@@ -471,10 +475,15 @@ impl LayerShellHandler for Daemon {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _layer: &LayerSurface,
+        layer: &LayerSurface,
     ) {
-        // The compositor closed the surface (e.g. we destroyed it).
-        self.overlay.hide();
+        // A destroy of an OLD surface can deliver `closed` after a NEW
+        // surface has already been shown; only hide when it is still the
+        // current surface.
+        let is_current = self.overlay.is_current_surface(layer);
+        if is_current {
+            self.overlay.hide();
+        }
     }
 
     fn configure(
@@ -483,11 +492,16 @@ impl LayerShellHandler for Daemon {
         _qh: &QueueHandle<Self>,
         layer: &LayerSurface,
         configure: LayerSurfaceConfigure,
-        serial: u32,
+        _serial: u32,
     ) {
+        // Ignore configure events for surfaces that are no longer current
+        // (an old surface's destroy can race a fresh re-show).
+        let is_current = self.overlay.is_current_surface(layer);
+        if !is_current {
+            return;
+        }
         let Daemon { overlay, .. } = self;
         overlay.configure(configure.new_size);
-        let _ = layer;
         // If the session started before the first configure, fix its bounds.
         let bounds = self.overlay.bounds;
         if let Some(session) = &mut self.session {
@@ -666,7 +680,17 @@ pub fn run() -> i32 {
         if let ChannelEvent::Msg(event) = event {
             match event {
                 TrayEvent::Activate => {
-                    let _ = app.process_request(Request::Activate);
+                    // Tray hosts may deliver the menu click on both press
+                    // and release; debounce so one click = one grid.
+                    let now = Instant::now();
+                    let duplicate = app
+                        .last_tray_activate
+                        .map(|t| now.duration_since(t) < Duration::from_millis(500))
+                        .unwrap_or(false);
+                    app.last_tray_activate = Some(now);
+                    if !duplicate {
+                        let _ = app.process_request(Request::Activate);
+                    }
                 }
                 TrayEvent::Cancel => {
                     let _ = app.process_request(Request::Cancel);

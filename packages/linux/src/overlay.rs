@@ -100,6 +100,15 @@ impl Overlay {
         self.buffer = None;
     }
 
+    /// Whether `layer` is the currently mapped layer surface (used to
+    /// ignore stale configure/closed events for destroyed surfaces).
+    pub fn is_current_surface(&self, layer: &LayerSurface) -> bool {
+        self.layer_surface
+            .as_ref()
+            .map(|current| current == layer)
+            .unwrap_or(false)
+    }
+
     /// Map the surface: anchor it to all edges of the focused output.
     pub fn show(&mut self) {
         let Some(layer) = &self.layer_surface else { return };
