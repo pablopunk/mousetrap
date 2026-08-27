@@ -253,20 +253,16 @@ impl Daemon {
     }
 
     fn cancel_session(&mut self) {
-        eprintln!("mousetrap: trace: cancel_session begin");
         // Release the keyboard grab first so keystrokes resume reaching
         // applications immediately.
         if let Some(mut keyboard) = self.keyboard.take() {
             keyboard.stop();
         }
-        eprintln!("mousetrap: trace: keyboard stopped");
         self.session = None;
         self.action = None;
         let Daemon { overlay, .. } = self;
         overlay.hide();
-        eprintln!("mousetrap: trace: overlay hidden");
         self.run_optional_command(&self.settings.on_cancel_command.clone());
-        eprintln!("mousetrap: trace: cancel_session end");
     }
 
     fn refresh_overlay(&mut self) {
@@ -615,12 +611,7 @@ pub fn run() -> i32 {
 
     if let Err(e) = handle.insert_source(WaylandSource::new(conn.clone(), event_queue), |_, queue, data| {
         match queue.dispatch_pending(data) {
-            Ok(count) => {
-                if count > 0 {
-                    eprintln!("mousetrap: trace: wayland dispatched {count}");
-                }
-                Ok(count)
-            }
+            Ok(count) => Ok(count),
             Err(err) => {
                 eprintln!("mousetrap: wayland error: {err:?}; exiting");
                 std::process::exit(1);
@@ -649,7 +640,6 @@ pub fn run() -> i32 {
     // Keyboard grab events (evdev).
     if let Err(e) = handle.insert_source(keys_rx, |event, _, app| {
         if let ChannelEvent::Msg(event) = event {
-            eprintln!("mousetrap: trace: key event processed");
             app.heartbeat.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             app.key_processed_at.store(
                 std::time::SystemTime::now()
@@ -716,12 +706,7 @@ pub fn run() -> i32 {
 
     // Periodic session-timeout check.
     let tick = Timer::from_duration(Duration::from_millis(500));
-    let mut tick_count: u64 = 0;
-    if let Err(e) = handle.insert_source(tick, move |_, _, app| {
-        tick_count += 1;
-        if tick_count % 20 == 0 {
-            eprintln!("mousetrap: trace: tick alive (#{tick_count})");
-        }
+    if let Err(e) = handle.insert_source(tick, |_, _, app| {
         app.tick();
         TimeoutAction::ToDuration(Duration::from_millis(500))
     }) {

@@ -262,18 +262,13 @@ fn reader_loop(
                 match event.value {
                     1 => {
                         if event.code == KEY_ESC {
-                            eprintln!("mousetrap: evdev ESC down");
                             let _ = tx.send(KeyEvent::Escape);
                         } else if let Some(key) = keycode_to_grid(event.code) {
-                            eprintln!("mousetrap: evdev down code={} -> {key}", event.code);
                             let _ = tx.send(KeyEvent::KeyDown(key.to_string()));
-                        } else {
-                            eprintln!("mousetrap: evdev down code={} (not a grid key)", event.code);
                         }
                     }
                     0 => {
                         if let Some(key) = keycode_to_grid(event.code) {
-                            eprintln!("mousetrap: evdev up code={} -> {key}", event.code);
                             let _ = tx.send(KeyEvent::KeyUp(key.to_string()));
                         }
                     }

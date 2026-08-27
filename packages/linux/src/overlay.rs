@@ -124,20 +124,14 @@ impl Overlay {
 
     /// Unmap and tear down the layer surface.
     pub fn hide(&mut self) {
-        eprintln!("mousetrap: trace: overlay hide begin");
         self.shown = false;
         self.state = None;
         self.needs_redraw = false;
         self.layer_surface = None;
-        eprintln!("mousetrap: trace: layer surface dropped");
         self.surface = None;
-        eprintln!("mousetrap: trace: surface dropped");
         self.buffer = None;
-        eprintln!("mousetrap: trace: buffer dropped");
         self.pool = None;
-        eprintln!("mousetrap: trace: pool dropped");
         self.configured = false;
-        eprintln!("mousetrap: trace: overlay hide end");
     }
 
     fn commit(&self) {

@@ -74,3 +74,25 @@ input-capture work below for the bind-free flow.
 - [x] Safety nets: watchdog thread, grab self-release, graceful tray Quit
 - [ ] Right-click / double-click / drag, free-mouse mode
 - [ ] Settings UI parity with macOS
+
+## Development
+
+```bash
+cargo build                     # debug
+cargo test                      # unit tests (grid math, key mapping, uinput)
+cargo build --release           # release binary
+
+# Run the daemon (detached; it registers a tray icon):
+setsid ./target/debug/mousetrap daemon > /tmp/mousetrap.log 2>&1 < /dev/null &
+
+# Synthetic testing without a physical keyboard (clicks disabled):
+python3 - <<'PY'
+import json
+from pathlib import Path
+p = Path.home() / '.config/mousetrap/config.json'
+cfg = json.loads(p.read_text())
+cfg['click_backend'] = 'none'
+p.write_text(json.dumps(cfg, indent=2) + '\n')
+PY
+mousetrap activate && mousetrap key-down a && mousetrap key-up a
+```
