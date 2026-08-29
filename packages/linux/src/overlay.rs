@@ -28,12 +28,6 @@ const CELL_PADDING: f32 = 1.0;
 
 static FONT: OnceLock<Font> = OnceLock::new();
 
-/// A small centered informational panel (used for the toggle-shortcut help).
-pub struct InfoPanel {
-    pub title: String,
-    pub lines: Vec<String>,
-}
-
 fn font() -> &'static Font {
     FONT.get_or_init(|| {
         let bytes: &[u8] = include_bytes!("../assets/DejaVuSansMono.ttf");
@@ -61,8 +55,6 @@ pub struct Overlay {
     pub bounds: Bounds,
     /// Current session state (drives drawing).
     pub state: Option<SessionState>,
-    /// Info panel; when set it is drawn instead of the grid.
-    pub info: Option<InfoPanel>,
 }
 
 impl Overlay {
@@ -79,7 +71,6 @@ impl Overlay {
             needs_redraw: false,
             bounds: (0, 0, 0, 0),
             state: None,
-            info: None,
         }
     }
 
@@ -135,7 +126,6 @@ impl Overlay {
     pub fn hide(&mut self) {
         self.shown = false;
         self.state = None;
-        self.info = None;
         self.needs_redraw = false;
         self.layer_surface = None;
         self.surface = None;
@@ -200,10 +190,7 @@ impl Overlay {
         // expose contents from a previous frame or another shm allocation.
         canvas.fill(0);
 
-        match &self.info {
-            Some(info) => draw_info(canvas, pw as usize, ph as usize, scale, info),
-            None => draw_grid(canvas, pw as usize, ph as usize, scale, self.state.as_ref()),
-        }
+        draw_grid(canvas, pw as usize, ph as usize, scale, self.state.as_ref());
 
         if let Some(surface) = &self.surface {
             if let Some(buffer) = &self.buffer {
@@ -377,106 +364,4 @@ fn draw_text(
     let cursor = x + ((w - total_width) / 2.0).max(0.0);
     let baseline = y + h * 0.78;
     blit_text(canvas, width, height, text, size, cursor, baseline, r, g, b, a);
-}
-
-/// Left-aligned text starting at (x, y) — the top-left corner.
-fn draw_text_left(
-    canvas: &mut [u8],
-    width: usize,
-    height: usize,
-    text: &str,
-    size: f32,
-    x: f32,
-    y: f32,
-    r: u8,
-    g: u8,
-    b: u8,
-    a: f32,
-) {
-    let baseline = y + size * 1.05;
-    blit_text(canvas, width, height, text, size, x, baseline, r, g, b, a);
-}
-
-/// Split `text` into chunks of at most `width` characters (monospace font).
-fn wrap_chars(text: &str, width: usize) -> Vec<String> {
-    let width = width.max(1);
-    let mut out = Vec::new();
-    if text.is_empty() {
-        out.push(String::new());
-        return out;
-    }
-    let mut current = String::new();
-    for ch in text.chars() {
-        current.push(ch);
-        if current.chars().count() >= width {
-            out.push(current.clone());
-            current.clear();
-        }
-    }
-    if !current.is_empty() || out.is_empty() {
-        out.push(current);
-    }
-    out
-}
-
-/// Centered info panel: dim background, dark panel, title + wrapped lines.
-/// All loops are bounded by the wrapped line count; cannot spin.
-fn draw_info(canvas: &mut [u8], width: usize, height: usize, scale: u32, info: &InfoPanel) {
-    let s = scale.max(1) as f32;
-    let (w, h) = (width as f32, height as f32);
-    fill_rect(canvas, width, height, 0.0, 0.0, w, h, 0, 0, 0, OVERLAY_ALPHA);
-
-    let mut title_size = (20.0 * s).max(12.0);
-    let mut body_size = (15.0 * s).max(10.0);
-    let advance = |size: f32| size * 0.602;
-    let line_h = |size: f32| size * 1.45;
-    let pad = 24.0 * s;
-
-    let max_width = w * 0.84;
-    let max_height = h * 0.8;
-
-    // Wrap to a conservative char budget first.
-    let max_chars = ((max_width - 2.0 * pad) / advance(body_size)).max(10.0) as usize;
-    let mut lines: Vec<(String, bool)> = Vec::new(); // (text, is_title)
-    lines.push((info.title.clone(), true));
-    lines.push((String::new(), false));
-    for raw in &info.lines {
-        for chunk in wrap_chars(raw, max_chars) {
-            lines.push((chunk, false));
-        }
-    }
-    lines.truncate(64);
-
-    // Shrink the fonts until everything fits vertically.
-    let mut text_w = 0.0f32;
-    for (text, is_title) in &lines {
-        let size = if *is_title { title_size } else { body_size };
-        text_w = text_w.max(text.chars().count() as f32 * advance(size));
-    }
-    let mut panel_w = (text_w + 2.0 * pad).min(max_width);
-    let mut panel_h = lines.len() as f32 * line_h(body_size) + title_size * 0.4 + 2.0 * pad;
-    if panel_h > max_height {
-        let k = max_height / panel_h;
-        title_size = (title_size * k).max(9.0 * s);
-        body_size = (body_size * k).max(9.0 * s);
-        panel_w = (text_w * k + 2.0 * pad).min(max_width);
-        panel_h = lines.len() as f32 * line_h(body_size) + title_size * 0.4 + 2.0 * pad;
-    }
-
-    let px = (w - panel_w) / 2.0;
-    let py = (h - panel_h) / 2.0;
-    fill_rect(canvas, width, height, px, py, panel_w, panel_h, 24, 24, 28, 1.0);
-    stroke_rect(canvas, width, height, px, py, panel_w, panel_h, 1.5 * s, 255, 255, 255, 90.0 / 255.0);
-
-    let mut y = py + pad;
-    for (text, is_title) in &lines {
-        if *is_title {
-            let size = title_size;
-            draw_text(canvas, width, height, text, size, px, y, panel_w, size * 1.2, 255, 255, 255, 1.0);
-            y += line_h(title_size);
-        } else {
-            draw_text_left(canvas, width, height, text, body_size, px + pad * 0.5, y, 235, 235, 240, 0.95);
-            y += line_h(body_size);
-        }
-    }
 }

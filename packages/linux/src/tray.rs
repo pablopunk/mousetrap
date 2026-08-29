@@ -146,6 +146,65 @@ fn shortcut_label(state: &ShortcutState) -> String {
     }
 }
 
+/// Show shortcut setup through the standard freedesktop notification
+/// service. This deliberately lives outside the overlay: setup information
+/// must not cover the screen, focus an app, or capture keyboard input.
+pub fn notify_shortcut_setup(state: ShortcutState) {
+    std::thread::spawn(move || {
+        if let Err(e) = send_shortcut_notification(&state) {
+            eprintln!("mousetrap: cannot show shortcut notification: {e}");
+        }
+    });
+}
+
+fn send_shortcut_notification(state: &ShortcutState) -> Result<(), zbus::Error> {
+    let (summary, body) = match state {
+        ShortcutState::Unavailable(reason) => (
+            "Mousetrap shortcut unavailable",
+            format!(
+                "This compositor does not provide global shortcuts.\n\n{reason}"
+            ),
+        ),
+        ShortcutState::Registering => (
+            "Mousetrap shortcut",
+            "Registering the toggle action with the compositor…".to_string(),
+        ),
+        ShortcutState::Registered { trigger, .. } if !trigger.is_empty() => (
+            "Mousetrap shortcut",
+            format!("Current toggle shortcut: {trigger}\n\nChange it in your system shortcut settings."),
+        ),
+        ShortcutState::Registered { appid, .. } => (
+            "Set Mousetrap toggle shortcut",
+            format!(
+                "Bind your preferred keys to this Hyprland action:\n{appid}:toggle"
+            ),
+        ),
+    };
+
+    let conn = Connection::session()?;
+    let notifications = Proxy::new(
+        &conn,
+        "org.freedesktop.Notifications",
+        "/org/freedesktop/Notifications",
+        "org.freedesktop.Notifications",
+    )?;
+    let hints: HashMap<String, OwnedValue> = HashMap::new();
+    let _: u32 = notifications.call(
+        "Notify",
+        &(
+            "Mousetrap",
+            0u32,
+            "mousetrap",
+            summary,
+            body,
+            Vec::<String>::new(),
+            hints,
+            10_000i32,
+        ),
+    )?;
+    Ok(())
+}
+
 #[interface(name = "com.canonical.dbusmenu")]
 impl Menu {
     fn get_layout(
