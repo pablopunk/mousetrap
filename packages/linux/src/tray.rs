@@ -137,16 +137,12 @@ pub struct Menu {
 
 fn shortcut_label(state: &ShortcutState) -> String {
     match state {
-        ShortcutState::Unavailable(_) => "Toggle shortcut: not supported here".to_string(),
-        ShortcutState::Registering => "Toggle shortcut: registering…".to_string(),
+        ShortcutState::Unavailable(_) => "Set toggle shortcut…".to_string(),
+        ShortcutState::Registering => "Set toggle shortcut…".to_string(),
         ShortcutState::Registered { trigger, .. } if !trigger.is_empty() => {
-            format!("Toggle shortcut: {trigger}")
+            format!("Shortcut: {trigger}")
         }
-        // Hyprland model: the combo lives in the user's compositor config;
-        // clicking explains how to add it.
-        ShortcutState::Registered { appid, .. } => {
-            format!("Toggle shortcut: set up {appid}:toggle (click here)")
-        }
+        ShortcutState::Registered { .. } => "Set toggle shortcut…".to_string(),
     }
 }
 
@@ -169,8 +165,8 @@ impl Menu {
             0,
             root_props,
             vec![
-                item(1, "Activate grid", false),
-                item(2, "Cancel", false),
+                item(1, "Show grid", false),
+                item(2, "Cancel grid", false),
                 item(5, &label, false),
                 item(4, "", true),
                 item(3, "Quit", false),
