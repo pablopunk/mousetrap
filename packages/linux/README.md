@@ -13,10 +13,27 @@ most others.
 | Concern | Mechanism |
 |---------|-----------|
 | Overlay window | `wlr-layer-shell` (overlay layer, non-focusable, follows the focused monitor) |
-| Rendering | `wl_shm` + `tiny-skia` (pure Rust, no GTK/cairo) |
+| Rendering | `wl_shm` + hand-rolled rect/text rasterization (embedded font, no GTK/cairo) |
 | Cursor movement & clicks | Virtual pointer via `/dev/uinput` (kernel input device) |
-| Tray presence | StatusNotifierItem over DBus (planned) |
-| Keyboard input | Input capture via libei (planned); optional user-defined compositor binds |
+| Tray presence | StatusNotifierItem + DBusMenu over DBus (Quickshell, any SNI host) |
+| Keyboard input | evdev + `EVIOCGRAB` while the grid is active — no compositor keybinds |
+
+## Installing (standard Linux app install)
+
+```bash
+# 1. Binary, icon, and launcher entry (system-wide)
+sudo install -Dm755 target/release/mousetrap /usr/local/bin/mousetrap
+sudo install -Dm644 assets/AppIcon.png /usr/local/share/pixmaps/mousetrap.png
+sudo install -Dm644 packaging/mousetrap.desktop /usr/local/share/applications/mousetrap.desktop
+
+# 2. systemd user unit: autostarts on login, restarts on crash
+install -Dm644 packaging/mousetrap.service ~/.config/systemd/user/mousetrap.service
+systemctl --user daemon-reload
+systemctl --user enable --now mousetrap
+```
+
+The daemon appears in the tray, survives logins via systemd, and the CLI
+revives it through systemd if you quit it from the tray menu.
 
 ## Build
 

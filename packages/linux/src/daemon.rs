@@ -7,10 +7,10 @@
 //!   - periodic timers (session timeout, click sequencing)
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::mpsc as std_mpsc;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use calloop::channel::{channel, Event as ChannelEvent};
 use calloop::timer::{TimeoutAction, Timer};
@@ -523,6 +523,16 @@ fn bind_socket() -> UnixListener {
     match UnixListener::bind(&path) {
         Ok(l) => l,
         Err(_) => {
+            // A socket file already exists. If something is actually
+            // listening on it, another daemon is alive: exit quietly rather
+            // than register a second tray icon (exit code 0 so systemd does
+            // not treat it as a failure to restart).
+            if UnixStream::connect(&path).is_ok() {
+                eprintln!("mousetrap: another instance is already running; exiting");
+                std::process::exit(0);
+            }
+            // The connect was refused: the file is stale (a crashed or
+            // killed daemon left it behind) and safe to replace.
             let _ = std::fs::remove_file(&path);
             UnixListener::bind(&path).expect("bind ipc socket")
         }
@@ -558,8 +568,50 @@ fn ipc_accept_loop(listener: UnixListener, tx: calloop::channel::Sender<IpcMessa
 // Entry point
 // ---------------------------------------------------------------------------
 
+/// Ensure a Wayland display is selected. A systemd user manager does not
+/// inherit the graphical session's environment, so when started from a
+/// service the daemon finds the socket itself: the newest `wayland-*` socket
+/// in `XDG_RUNTIME_DIR` wins (older ones belong to dead compositors).
+fn resolve_wayland_display() {
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        return;
+    }
+    let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(runtime) else {
+        return;
+    };
+    let mut newest: Option<(SystemTime, std::ffi::OsString)> = None;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name_str) = name.to_str() else { continue };
+        let Some(num) = name_str.strip_prefix("wayland-") else {
+            continue;
+        };
+        if num.is_empty() || !num.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else { continue };
+        let Ok(modified) = meta.modified() else { continue };
+        if newest
+            .as_ref()
+            .map(|(t, _)| modified > *t)
+            .unwrap_or(true)
+        {
+            newest = Some((modified, name));
+        }
+    }
+    if let Some((_, name)) = newest {
+        // SAFETY: this runs before the event loop or any threads exist,
+        // so there is no possible concurrent reader of the environment.
+        unsafe { std::env::set_var("WAYLAND_DISPLAY", name) };
+    }
+}
+
 /// Run the resident daemon in the foreground.
 pub fn run() -> i32 {
+    resolve_wayland_display();
     let conn = match Connection::connect_to_env() {
         Ok(c) => c,
         Err(e) => {
@@ -735,6 +787,21 @@ fn ensure_daemon() -> Option<Response> {
     match ipc::send(&Request::Ping) {
         Ok(response) => Some(response),
         Err(_) => {
+            // Preferred revival path: the installed systemd user unit
+            // (survives the CLI, restarts on failure, autostarts on login).
+            let _ = std::process::Command::new("systemctl")
+                .args(["--user", "start", "--no-block", "mousetrap"])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+            for _ in 0..40 {
+                std::thread::sleep(Duration::from_millis(25));
+                if let Ok(response) = ipc::send(&Request::Ping) {
+                    return Some(response);
+                }
+            }
+            // Fallback: no systemd unit installed — spawn a detached daemon.
             let exe = std::env::current_exe().ok()?;
             let spawn = std::process::Command::new(exe)
                 .arg("daemon")

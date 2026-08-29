@@ -1,0 +1,22 @@
+[Unit]
+Description=Mousetrap tray daemon (mouse grid overlay)
+Documentation=https://github.com/pablopunk/mousetrap
+# Start once the graphical session is up and stop when it ends. If the
+# compositor crashes and comes back, the daemon exits (its Wayland
+# connection dies) and Restart=on-failure revives it; it finds the new
+# compositor socket by itself.
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mousetrap daemon
+Restart=on-failure
+RestartSec=3
+# The user manager does not inherit the graphical session's environment.
+# XDG_RUNTIME_DIR is set by systemd itself; only the DBus address is needed
+# (the daemon resolves the Wayland socket in $XDG_RUNTIME_DIR on its own).
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus
+
+[Install]
+WantedBy=graphical-session.target
