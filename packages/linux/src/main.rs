@@ -18,6 +18,7 @@ mod input;
 mod ipc;
 mod keys;
 mod overlay;
+mod shortcuts;
 mod state;
 mod tray;
 

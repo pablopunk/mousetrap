@@ -10,7 +10,7 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/mousetrap daemon
+ExecStart=%h/.local/bin/mousetrap daemon
 Restart=on-failure
 RestartSec=3
 # The user manager does not inherit the graphical session's environment.

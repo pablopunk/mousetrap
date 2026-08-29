@@ -35,7 +35,8 @@ use crate::config::Settings;
 use crate::input::VirtualPointer;
 use crate::ipc::{self, Request, Response};
 use crate::keys::{KeyEvent, KeyboardGrab};
-use crate::overlay::Overlay;
+use crate::overlay::{InfoPanel, Overlay};
+use crate::shortcuts::{ShortcutEvent, ShortcutState};
 use crate::state::{KeyResult, OverlaySession, SelectionResult, SessionState};
 use crate::tray::TrayEvent;
 
@@ -70,6 +71,10 @@ pub struct Daemon {
     /// Timestamp of the last tray activate; used to debounce duplicate
     /// click events from tray hosts (press + release double-firing).
     last_tray_activate: Option<Instant>,
+    /// Global-shortcut registration state (labels tray menu, help panel).
+    shortcut_state: Arc<std::sync::Mutex<ShortcutState>>,
+    /// When set, the info panel auto-dismisses at this instant.
+    info_dismiss_at: Option<Instant>,
     /// Heartbeat updated by the main loop; a watchdog thread force-exits the
     /// daemon if it ever goes stale (defense against loop wedges).
     heartbeat: Arc<std::sync::atomic::AtomicU64>,
@@ -100,6 +105,7 @@ impl Daemon {
         globals: &GlobalList,
         qh: QueueHandle<Daemon>,
         keys_tx: calloop::channel::Sender<KeyEvent>,
+        shortcut_state: Arc<std::sync::Mutex<ShortcutState>>,
     ) -> Result<Self, String> {
         let registry_state = RegistryState::new(globals);
         let compositor =
@@ -125,6 +131,8 @@ impl Daemon {
             action: None,
             keys_tx,
             last_tray_activate: None,
+            shortcut_state,
+            info_dismiss_at: None,
             heartbeat: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             key_processed_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         })
@@ -172,9 +180,11 @@ impl Daemon {
         let state = SessionState::start(self.overlay.bounds);
         let session = OverlaySession::new(state.clone());
         self.session = Some(session);
+        self.info_dismiss_at = None;
         {
             let Daemon { overlay, compositor, layer_shell, qh, .. } = self;
             overlay.ensure_surface(compositor, layer_shell, qh);
+            overlay.info = None;
             overlay.state = Some(state);
             overlay.show();
         }
@@ -260,9 +270,39 @@ impl Daemon {
         }
         self.session = None;
         self.action = None;
+        self.info_dismiss_at = None;
         let Daemon { overlay, .. } = self;
         overlay.hide();
         self.run_optional_command(&self.settings.on_cancel_command.clone());
+    }
+
+    /// Toggle the grid from the global shortcut: show if hidden, hide if
+    /// visible (matches the macOS toggle behavior).
+    fn toggle_from_shortcut(&mut self) {
+        if self.session.is_some() {
+            self.cancel_session();
+        } else {
+            self.activate();
+        }
+    }
+
+    /// Show the "how to set the toggle shortcut" info panel (tray menu).
+    fn show_shortcut_help(&mut self) {
+        if self.session.is_some() {
+            return; // never interrupt an active grid session
+        }
+        let panel = self.shortcut_state
+            .lock()
+            .map(|state| shortcut_help_panel(&state))
+            .unwrap_or_else(|_| shortcut_help_panel(&ShortcutState::Registering));
+        {
+            let Daemon { overlay, compositor, layer_shell, qh, .. } = self;
+            overlay.ensure_surface(compositor, layer_shell, qh);
+            overlay.state = None;
+            overlay.info = Some(panel);
+            overlay.show();
+        }
+        self.info_dismiss_at = Some(Instant::now() + Duration::from_secs(15));
     }
 
     fn refresh_overlay(&mut self) {
@@ -347,6 +387,64 @@ impl Daemon {
                 self.cancel_session();
             }
         }
+        // Auto-dismiss the shortcut-help info panel. Only touch the overlay
+        // if no grid session is active (a session always wins the surface).
+        if let Some(at) = self.info_dismiss_at {
+            if self.session.is_none() && self.overlay.info.is_some() && Instant::now() >= at {
+                self.info_dismiss_at = None;
+                self.overlay.hide();
+            }
+        }
+    }
+}
+
+/// Text for the toggle-shortcut help panel, tailored to the registration
+/// state. Kept free of jargon so a click on the tray item is self-explanatory.
+fn shortcut_help_panel(state: &ShortcutState) -> InfoPanel {
+    match state {
+        ShortcutState::Unavailable(reason) => InfoPanel {
+            title: "TOGGLE SHORTCUT".to_string(),
+            lines: vec![
+                "This compositor does not provide the".to_string(),
+                "global-shortcuts portal".to_string(),
+                format!("({reason})"),
+                String::new(),
+                "You can still bind compositor keys to".to_string(),
+                "'mousetrap activate' in your".to_string(),
+                "compositor configuration.".to_string(),
+            ],
+        },
+        ShortcutState::Registering => InfoPanel {
+            title: "TOGGLE SHORTCUT".to_string(),
+            lines: vec!["Registering with the compositor…".to_string()],
+        },
+        ShortcutState::Registered { appid, trigger } if !trigger.is_empty() => InfoPanel {
+            title: "TOGGLE SHORTCUT".to_string(),
+            lines: vec![
+                format!("Current shortcut: {trigger}"),
+                String::new(),
+                "Change it in your system settings,".to_string(),
+                "under Shortcuts / Mousetrap.".to_string(),
+            ],
+        },
+        ShortcutState::Registered { appid, .. } => InfoPanel {
+            title: "TOGGLE SHORTCUT".to_string(),
+            lines: vec![
+                "On this compositor, global shortcuts".to_string(),
+                "are owned by the compositor itself.".to_string(),
+                String::new(),
+                format!("Mousetrap is registered as {appid}:toggle."),
+                "Add one line to your Hyprland config".to_string(),
+                "to pick the key combination:".to_string(),
+                String::new(),
+                "o.bind(\"SUPER + Space\", \"Toggle Mousetrap\",".to_string(),
+                "       hl.dsp.global(\"mousetrap:toggle\"))".to_string(),
+                String::new(),
+                "(SUPER + Space is just an example;".to_string(),
+                "choose any combo you like. This panel".to_string(),
+                "disappears by itself.)".to_string(),
+            ],
+        },
     }
 }
 
@@ -628,7 +726,8 @@ pub fn run() -> i32 {
     };
     let qh = event_queue.handle();
     let (keys_tx, keys_rx) = channel::<KeyEvent>();
-    let mut daemon = match Daemon::new(&globals, qh.clone(), keys_tx) {
+    let shortcut_state = Arc::new(std::sync::Mutex::new(ShortcutState::Registering));
+    let mut daemon = match Daemon::new(&globals, qh.clone(), keys_tx, shortcut_state.clone()) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("mousetrap: {e} (is this a wlr-layer-shell compositor?)");
@@ -717,7 +816,7 @@ pub fn run() -> i32 {
 
     // Tray (StatusNotifierItem over DBus).
     let (tray_tx, tray_rx) = channel::<TrayEvent>();
-    crate::tray::spawn(tray_tx);
+    crate::tray::spawn(tray_tx, shortcut_state.clone());
     if let Err(e) = handle.insert_source(tray_rx, |event, _, app| {
         if let ChannelEvent::Msg(event) = event {
             match event {
@@ -737,6 +836,9 @@ pub fn run() -> i32 {
                 TrayEvent::Cancel => {
                     let _ = app.process_request(Request::Cancel);
                 }
+                TrayEvent::ShortcutHelp => {
+                    app.show_shortcut_help();
+                }
                 TrayEvent::Quit => {
                     app.cancel_session();
                     // Never exit abruptly: the tray host may still be
@@ -753,6 +855,20 @@ pub fn run() -> i32 {
         }
     }) {
         eprintln!("mousetrap: cannot start tray source: {e}");
+        return 1;
+    }
+
+    // Global toggle shortcut (XDG portal). Runs on its own thread; the
+    // Activated event toggles the grid.
+    let (shortcut_tx, shortcut_rx) = channel::<ShortcutEvent>();
+    crate::shortcuts::spawn(shortcut_tx, shortcut_state);
+    if let Err(e) = handle.insert_source(shortcut_rx, |event, _, app| {
+        if let ChannelEvent::Msg(ShortcutEvent::Activated) = event {
+            app.heartbeat.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            app.toggle_from_shortcut();
+        }
+    }) {
+        eprintln!("mousetrap: cannot start shortcut source: {e}");
         return 1;
     }
 
@@ -790,7 +906,7 @@ fn ensure_daemon() -> Option<Response> {
             // Preferred revival path: the installed systemd user unit
             // (survives the CLI, restarts on failure, autostarts on login).
             let _ = std::process::Command::new("systemctl")
-                .args(["--user", "start", "--no-block", "mousetrap"])
+                .args(["--user", "start", "--no-block", "app-mousetrap"])
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())

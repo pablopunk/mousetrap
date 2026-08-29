@@ -21,16 +21,21 @@ most others.
 ## Installing (standard Linux app install)
 
 ```bash
-# 1. Binary, icon, and launcher entry (system-wide)
-sudo install -Dm755 target/release/mousetrap /usr/local/bin/mousetrap
-sudo install -Dm644 assets/AppIcon.png /usr/local/share/pixmaps/mousetrap.png
-sudo install -Dm644 packaging/mousetrap.desktop /usr/local/share/applications/mousetrap.desktop
+# 1. Binary + launcher entry (user-local; no root needed)
+install -Dm755 target/release/mousetrap ~/.local/bin/mousetrap
+install -Dm644 assets/AppIcon.png ~/.local/share/icons/mousetrap.png
+install -Dm644 packaging/mousetrap.desktop ~/.local/share/applications/mousetrap.desktop
 
-# 2. systemd user unit: autostarts on login, restarts on crash
-install -Dm644 packaging/mousetrap.service ~/.config/systemd/user/mousetrap.service
+# 2. systemd user unit: autostarts on login, restarts on crash.
+#    The `app-` prefix is the systemd desktop convention — it is what lets
+#    xdg-desktop-portal resolve this process to the mousetrap.desktop app id.
+install -Dm644 packaging/app-mousetrap.service ~/.config/systemd/user/app-mousetrap.service
 systemctl --user daemon-reload
-systemctl --user enable --now mousetrap
+systemctl --user enable --now app-mousetrap
 ```
+
+(For a system-wide install, use `/usr/local/bin` and `/usr/local/share/...`
+with the same files.)
 
 The daemon appears in the tray, survives logins via systemd, and the CLI
 revives it through systemd if you quit it from the tray menu.

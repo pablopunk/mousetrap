@@ -7,6 +7,7 @@
 //! the main loop through a calloop channel.
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use calloop::channel::Sender;
@@ -14,12 +15,16 @@ use zbus::blocking::{Connection, Proxy};
 use zbus::interface;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
+use crate::shortcuts::ShortcutState;
+
 /// Events forwarded from the tray thread to the daemon's main loop.
 #[derive(Debug, Clone, Copy)]
 pub enum TrayEvent {
     Activate,
     Cancel,
     Quit,
+    /// User clicked the "Toggle shortcut" menu item.
+    ShortcutHelp,
 }
 
 const ICON_SIZE: usize = 64;
@@ -126,6 +131,23 @@ pub struct Menu {
     tx: Sender<TrayEvent>,
     /// Layout revision, incremented when the menu changes.
     revision: u32,
+    /// Current shortcut registration state (labels the menu item).
+    shortcut_state: Arc<Mutex<ShortcutState>>,
+}
+
+fn shortcut_label(state: &ShortcutState) -> String {
+    match state {
+        ShortcutState::Unavailable(_) => "Toggle shortcut: not supported here".to_string(),
+        ShortcutState::Registering => "Toggle shortcut: registering…".to_string(),
+        ShortcutState::Registered { trigger, .. } if !trigger.is_empty() => {
+            format!("Toggle shortcut: {trigger}")
+        }
+        // Hyprland model: the combo lives in the user's compositor config;
+        // clicking explains how to add it.
+        ShortcutState::Registered { appid, .. } => {
+            format!("Toggle shortcut: set up {appid}:toggle (click here)")
+        }
+    }
 }
 
 #[interface(name = "com.canonical.dbusmenu")]
@@ -136,6 +158,11 @@ impl Menu {
         _recursion_depth: i32,
         _property_names: Vec<String>,
     ) -> (u32, Layout) {
+        let label = self
+            .shortcut_state
+            .lock()
+            .map(|state| shortcut_label(&state))
+            .unwrap_or_else(|_| "Toggle shortcut".to_string());
         let mut root_props = HashMap::new();
         insert_prop(&mut root_props, "children-display", "submenu");
         let root: Layout = (
@@ -144,6 +171,7 @@ impl Menu {
             vec![
                 item(1, "Activate grid", false),
                 item(2, "Cancel", false),
+                item(5, &label, false),
                 item(4, "", true),
                 item(3, "Quit", false),
             ],
@@ -167,6 +195,7 @@ impl Menu {
             1 => TrayEvent::Activate,
             2 => TrayEvent::Cancel,
             3 => TrayEvent::Quit,
+            5 => TrayEvent::ShortcutHelp,
             _ => return,
         };
         let _ = self.tx.send(event);
@@ -187,21 +216,25 @@ impl Menu {
 
 /// Start the tray on its own thread. The caller gets the thread handle;
 /// the tray never returns unless the bus connection fails.
-pub fn spawn(tx: Sender<TrayEvent>) {
+pub fn spawn(tx: Sender<TrayEvent>, shortcut_state: Arc<Mutex<ShortcutState>>) {
     std::thread::spawn(move || {
-        if let Err(e) = run(tx) {
+        if let Err(e) = run(tx, shortcut_state) {
             eprintln!("mousetrap: tray unavailable: {e}");
         }
     });
 }
 
-fn run(tx: Sender<TrayEvent>) -> Result<(), zbus::Error> {
+fn run(tx: Sender<TrayEvent>, shortcut_state: Arc<Mutex<ShortcutState>>) -> Result<(), zbus::Error> {
     let conn = Connection::session()?;
     let service_name = format!("org.kde.StatusNotifierItem-{}-1", std::process::id());
     conn.request_name(service_name.as_str())?;
 
     let sni = Sni { pixmap: icon_pixmap() };
-    let menu = Menu { tx, revision: 1 };
+    let menu = Menu {
+        tx,
+        revision: 1,
+        shortcut_state,
+    };
     conn.object_server().at("/StatusNotifierItem", sni)?;
     conn.object_server().at("/MenuBar", menu)?;
 
