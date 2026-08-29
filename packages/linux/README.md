@@ -88,7 +88,7 @@ input-capture work below for the bind-free flow.
 ## Status
 
 - [x] Layer-shell overlay on the focused monitor (multi-monitor safe)
-- [x] Three-step refinement, chord targeting (pairs + 2x2 quads)
+- [x] Three-step refinement, chord targeting (pairs, diagonals + 2x2 quads)
 - [x] Cursor warp + click via uinput (udev/input-group permission needed)
 - [x] Tray presence via StatusNotifierItem (SNI) with DBusMenu
 - [x] Keyboard capture via evdev + EVIOCGRAB (no compositor binds needed)
@@ -96,6 +96,50 @@ input-capture work below for the bind-free flow.
 - [x] Safety nets: watchdog thread, grab self-release, graceful tray Quit
 - [ ] Right-click / double-click / drag, free-mouse mode
 - [ ] Settings UI parity with macOS
+
+## macOS Feature Parity
+
+Legend: ✅ implemented · 🟡 partial/scaffolded · ❌ not implemented
+
+| macOS feature | Linux status | Linux counterpart |
+|---|---:|---|
+| Resident menu/tray app | ✅ | Tray-resident systemd daemon |
+| Custom global shortcut | ✅ | XDG portal action; requires a user compositor binding |
+| Tray activation | ✅ | Tray menu includes **Show grid** |
+| Full-screen grid overlay | ✅ | `wlr-layer-shell` overlay |
+| Focused-screen selection | ✅ | Uses the compositor's focused monitor |
+| Active keyboard-layout detection | ❌ | Fixed QWERTY layout |
+| Three nested grid levels | ✅ | Same |
+| Single-key targeting | ✅ | Same |
+| Horizontal/vertical chords | ✅ | Same |
+| Diagonal chords | ✅ | Same |
+| Four-key `2x2` chords | ✅ | Linux supports explicit quads |
+| 80 ms chord grace period | ✅ | Same |
+| Chord target preview | ❌ | No visual pressed-key/target preview |
+| `Delete` back navigation | ❌ | No equivalent |
+| `Escape` cancellation | ✅ | Captured by evdev |
+| Final left-click | ✅ | `/dev/uinput` virtual pointer |
+| Free mouse mode | ❌ | Not implemented |
+| Arrow-key cursor movement | ❌ | Not implemented |
+| Double-click | 🟡 | Backend method exists, but no user flow |
+| Right-click | 🟡 | Backend method exists, but no user flow |
+| Left-button dragging | 🟡 | Backend methods exist, but no user flow |
+| Free-mouse cursor indicator | ❌ | None |
+| Physical mouse movement safety reset | ❌ | No free-mouse observer |
+| Inactivity timeout | ✅ | JSON-configurable; default 8 seconds |
+| Synthetic-event filtering | 🟡 | Not needed currently because Linux has no mouse observer |
+| Accessibility/input permissions | ✅ | `/dev/input` and `/dev/uinput` permissions |
+| Per-level pulse/reveal animation | ❌ | Not implemented |
+| Free-mouse step setting | ❌ | No free-mouse mode |
+| Native settings UI | ❌ | JSON configuration and CLI |
+| Timeout settings UI | ❌ | JSON configuration only |
+| Launch at login | ✅ | systemd user service |
+| Hide/show tray icon | 🟡 | Tray icon is always daemon-managed |
+| About/version screen | ❌ | None |
+| CLI and IPC | ✅ | UNIX socket plus activation/config commands |
+| Commit/cancel hooks | ✅ | Optional shell commands |
+| Packaging/install support | ✅ | Binary, desktop entry, icon, systemd unit |
+| Graceful keyboard-grab teardown | ✅ | Grab releases on cancel, quit, or process death |
 
 ## Development
 
