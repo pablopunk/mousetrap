@@ -73,6 +73,9 @@ pub struct Daemon {
     last_tray_activate: Option<Instant>,
     /// Global-shortcut registration state (labels tray menu, help panel).
     shortcut_state: Arc<std::sync::Mutex<ShortcutState>>,
+    /// Commit deadline after the last chord key is released. A subsequent
+    /// key-down before this deadline joins the same chord (macOS parity).
+    chord_commit_at: Option<Instant>,
     /// Heartbeat updated by the main loop; a watchdog thread force-exits the
     /// daemon if it ever goes stale (defense against loop wedges).
     heartbeat: Arc<std::sync::atomic::AtomicU64>,
@@ -130,6 +133,7 @@ impl Daemon {
             keys_tx,
             last_tray_activate: None,
             shortcut_state,
+            chord_commit_at: None,
             heartbeat: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             key_processed_at: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         })
@@ -198,6 +202,8 @@ impl Daemon {
     }
 
     fn key_down(&mut self, key: &str) -> Response {
+        // A new key during the grace period joins the pending chord.
+        self.chord_commit_at = None;
         let Some(session) = self.session.as_mut() else {
             return Response::err("no active session");
         };
@@ -219,14 +225,27 @@ impl Daemon {
             return Response::err("no active session");
         };
         if let KeyResult::Commit = session.key_up(key) {
-            if let Some(selection) = session.commit_pending() {
-                self.refresh_overlay();
-                if selection.is_final {
-                    return self.commit_selection(selection);
-                }
+            let grace = self.settings.chord_timeout_seconds.max(0.0);
+            if grace == 0.0 {
+                return self.commit_pending_chord();
             }
+            self.chord_commit_at = Some(Instant::now() + Duration::from_secs_f64(grace));
         }
-        Response::ok("ok")
+        Response::ok("pending")
+    }
+
+    fn commit_pending_chord(&mut self) -> Response {
+        self.chord_commit_at = None;
+        let selection = self.session.as_mut().and_then(OverlaySession::commit_pending);
+        let Some(selection) = selection else {
+            return Response::ok("no pending selection");
+        };
+        self.refresh_overlay();
+        if selection.is_final {
+            self.commit_selection(selection)
+        } else {
+            Response::ok("selected")
+        }
     }
 
     fn commit_selection(&mut self, selection: SelectionResult) -> Response {
@@ -265,6 +284,7 @@ impl Daemon {
         }
         self.session = None;
         self.action = None;
+        self.chord_commit_at = None;
         let Daemon { overlay, .. } = self;
         overlay.hide();
         self.run_optional_command(&self.settings.on_cancel_command.clone());
@@ -351,6 +371,9 @@ impl Daemon {
 
     /// Action timer callback: advance phases on schedule.
     fn on_action_timer(&mut self) -> TimeoutAction {
+        if self.chord_commit_at.is_some_and(|at| Instant::now() >= at) {
+            let _ = self.commit_pending_chord();
+        }
         if let Some(action) = &mut self.action {
             let now = Instant::now();
             if now >= action.ready_at {
@@ -360,7 +383,9 @@ impl Daemon {
             let remaining = action.ready_at.saturating_duration_since(now);
             return TimeoutAction::ToDuration(remaining.max(Duration::from_millis(1)));
         }
-        TimeoutAction::ToDuration(Duration::from_millis(100))
+        // Keep chord commits within one frame of their 80ms deadline. The
+        // timer cannot be rescheduled directly from an evdev channel event.
+        TimeoutAction::ToDuration(Duration::from_millis(25))
     }
 
     /// Periodic tick: enforce the session timeout.

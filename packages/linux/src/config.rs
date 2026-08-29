@@ -41,7 +41,9 @@ impl Default for Settings {
             click_backend: "uinput".to_string(),
             refinement_steps: 3,
             session_timeout_seconds: 8.0,
-            chord_timeout_seconds: 0.35,
+            // Match the macOS chord grace period: long enough for a natural
+            // key roll, short enough that single-key selection feels instant.
+            chord_timeout_seconds: 0.08,
             on_commit_command: None,
             on_cancel_command: None,
         }

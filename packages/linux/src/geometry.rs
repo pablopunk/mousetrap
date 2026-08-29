@@ -82,7 +82,8 @@ pub fn rect_center(bounds: Bounds) -> (i32, i32) {
     (x + w / 2, y + h / 2)
 }
 
-/// Classify a multi-key chord: `pair` (adjacent cells) or `quad` (2x2 block).
+/// Classify a multi-key chord: `pair` (horizontally, vertically, or
+/// diagonally adjacent cells) or `quad` (2x2 block).
 /// Returns `None` when the keys do not form a chord.
 pub fn classify_chord(targets: &[CellTarget]) -> Option<&'static str> {
     if targets.len() == 2 {
@@ -92,7 +93,11 @@ pub fn classify_chord(targets: &[CellTarget]) -> Option<&'static str> {
             && cols.iter().max().unwrap() - cols.iter().min().unwrap() == 1;
         let same_col = cols.len() == 1
             && rows.iter().max().unwrap() - rows.iter().min().unwrap() == 1;
-        if same_row || same_col {
+        let diagonal = rows.len() == 2
+            && cols.len() == 2
+            && rows.iter().max().unwrap() - rows.iter().min().unwrap() == 1
+            && cols.iter().max().unwrap() - cols.iter().min().unwrap() == 1;
+        if same_row || same_col || diagonal {
             return Some("pair");
         }
     }
@@ -200,6 +205,10 @@ mod tests {
     fn chord_classification() {
         let pair: Vec<CellTarget> = ["z", "x"].iter().filter_map(|k| find_cell_for_key(k)).collect();
         assert_eq!(classify_chord(&pair), Some("pair"));
+        let vertical: Vec<CellTarget> = ["q", "a"].iter().filter_map(|k| find_cell_for_key(k)).collect();
+        assert_eq!(classify_chord(&vertical), Some("pair"));
+        let diagonal: Vec<CellTarget> = ["q", "s"].iter().filter_map(|k| find_cell_for_key(k)).collect();
+        assert_eq!(classify_chord(&diagonal), Some("pair"));
         let quad: Vec<CellTarget> = ["a", "s", "z", "x"]
             .iter().filter_map(|k| find_cell_for_key(k)).collect();
         assert_eq!(classify_chord(&quad), Some("quad"));

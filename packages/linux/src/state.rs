@@ -258,6 +258,47 @@ mod tests {
     }
 
     #[test]
+    fn horizontal_as_chord_targets_shared_edge() {
+        let mut session = OverlaySession::new(SessionState::start(SCREEN));
+        session.key_down("a");
+        session.key_down("s");
+        assert!(matches!(session.key_up("a"), KeyResult::StillHeld));
+        assert!(matches!(session.key_up("s"), KeyResult::Commit));
+        let result = session.commit_pending().unwrap();
+        let a = cell_bounds(SCREEN, &find_cell_for_key("a").unwrap());
+        let s = cell_bounds(SCREEN, &find_cell_for_key("s").unwrap());
+        assert_eq!(result.chord_kind, Some("pair"));
+        assert_eq!(result.point, (a.0 + a.2, a.1 + a.3 / 2));
+        assert_eq!(a.0 + a.2, s.0);
+    }
+
+    #[test]
+    fn diagonal_chord_targets_shared_corner() {
+        let mut session = OverlaySession::new(SessionState::start(SCREEN));
+        session.key_down("q");
+        session.key_down("s");
+        session.key_up("q");
+        session.key_up("s");
+        let result = session.commit_pending().unwrap();
+        let q = cell_bounds(SCREEN, &find_cell_for_key("q").unwrap());
+        assert_eq!(result.chord_kind, Some("pair"));
+        assert_eq!(result.point, (q.0 + q.2, q.1 + q.3));
+    }
+
+    #[test]
+    fn rolling_keys_can_join_before_caller_commits() {
+        let mut session = OverlaySession::new(SessionState::start(SCREEN));
+        session.key_down("a");
+        assert!(matches!(session.key_up("a"), KeyResult::Commit));
+        // The daemon waits for the grace period instead of committing here.
+        session.key_down("s");
+        assert!(matches!(session.key_up("s"), KeyResult::Commit));
+        let result = session.commit_pending().unwrap();
+        assert_eq!(result.keys, vec!["a", "s"]);
+        assert_eq!(result.chord_kind, Some("pair"));
+    }
+
+    #[test]
     fn timeout_detection() {
         let mut state = SessionState::start(SCREEN);
         state.updated_at -= 10.0;
