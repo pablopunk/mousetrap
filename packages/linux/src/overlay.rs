@@ -195,6 +195,11 @@ impl Overlay {
         };
         self.buffer = Some(buffer);
 
+        // SlotPool memory is reused and is not guaranteed to be initialized.
+        // Always start from transparent black: blending over stale bytes can
+        // expose contents from a previous frame or another shm allocation.
+        canvas.fill(0);
+
         match &self.info {
             Some(info) => draw_info(canvas, pw as usize, ph as usize, scale, info),
             None => draw_grid(canvas, pw as usize, ph as usize, scale, self.state.as_ref()),
@@ -218,19 +223,21 @@ impl Overlay {
 // Manual rasterization (bounded loops only; can never spin).
 // ---------------------------------------------------------------------------
 
-/// Blend an unpremultiplied source color (r,g,b 0..=255, coverage `a`
-/// 0..=1) into a premultiplied ARGB8888 pixel. Integer math only.
+/// Blend an unpremultiplied source color into a premultiplied ARGB8888
+/// pixel. Wayland's ARGB8888 is a native-endian u32; on little-endian Linux
+/// the bytes in memory are B, G, R, A (not A, R, G, B).
 #[inline]
 fn blend_pixel(dst: &mut [u8], r: u8, g: u8, b: u8, a: f32) {
     let a = (a.clamp(0.0, 1.0) * 255.0) as u32;
-    let d1 = dst[1] as u32;
-    let d2 = dst[2] as u32;
-    let d3 = dst[3] as u32;
-    let d0 = dst[0] as u32;
-    dst[1] = ((r as u32 * a + d1 * (255 - a)) >> 8) as u8;
-    dst[2] = ((g as u32 * a + d2 * (255 - a)) >> 8) as u8;
-    dst[3] = ((b as u32 * a + d3 * (255 - a)) >> 8) as u8;
-    dst[0] = ((255 * a + d0 * (255 - a)) >> 8) as u8;
+    let inv = 255 - a;
+    let db = dst[0] as u32;
+    let dg = dst[1] as u32;
+    let dr = dst[2] as u32;
+    let da = dst[3] as u32;
+    dst[0] = ((b as u32 * a + db * inv) / 255) as u8;
+    dst[1] = ((g as u32 * a + dg * inv) / 255) as u8;
+    dst[2] = ((r as u32 * a + dr * inv) / 255) as u8;
+    dst[3] = ((255 * a + da * inv) / 255) as u8;
 }
 
 /// Fill an axis-aligned rectangle (float coords), clipped to the canvas.
@@ -320,7 +327,9 @@ fn blit_text(
     for ch in text.chars() {
         let (metrics, bitmap) = font.rasterize(ch, size);
         let gx = (cursor + metrics.xmin as f32) as i32;
-        let gy = (baseline + metrics.ymin as f32) as i32;
+        // fontdue's ymin is the bottom edge relative to the baseline, while
+        // its bitmap rows run top-to-bottom. Convert that to a canvas top.
+        let gy = (baseline - metrics.ymin as f32 - metrics.height as f32) as i32;
         for row in 0..metrics.height {
             let py = gy + row as i32;
             if py < 0 || py as usize >= height {
@@ -456,7 +465,7 @@ fn draw_info(canvas: &mut [u8], width: usize, height: usize, scale: u32, info: &
 
     let px = (w - panel_w) / 2.0;
     let py = (h - panel_h) / 2.0;
-    fill_rect(canvas, width, height, px, py, panel_w, panel_h, 24, 24, 28, 235.0 / 255.0);
+    fill_rect(canvas, width, height, px, py, panel_w, panel_h, 24, 24, 28, 1.0);
     stroke_rect(canvas, width, height, px, py, panel_w, panel_h, 1.5 * s, 255, 255, 255, 90.0 / 255.0);
 
     let mut y = py + pad;
