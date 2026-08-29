@@ -180,12 +180,12 @@ fn run(tx: Sender<ShortcutEvent>, state: &Arc<Mutex<ShortcutState>>) -> Result<(
 
     // 3. Wait for activation signals on the session object for the
     //    lifetime of the daemon.
-    let session_path = OwnedObjectPath::try_from(session_handle.as_str())
-        .map_err(|e| e.to_string())?;
+    // Activated is emitted on the portal's root object; the session handle
+    // is argument 0. It is not emitted on the session object itself.
     let session_proxy = Proxy::new(
         &conn,
         "org.freedesktop.portal.Desktop",
-        session_path.clone(),
+        "/org/freedesktop/portal/desktop",
         "org.freedesktop.portal.GlobalShortcuts",
     )
     .map_err(|e| e.to_string())?;
