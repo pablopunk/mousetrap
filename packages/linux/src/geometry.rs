@@ -89,10 +89,10 @@ pub fn classify_chord(targets: &[CellTarget]) -> Option<&'static str> {
     if targets.len() == 2 {
         let rows: std::collections::HashSet<_> = targets.iter().map(|t| t.row).collect();
         let cols: std::collections::HashSet<_> = targets.iter().map(|t| t.column).collect();
-        let same_row = rows.len() == 1
-            && cols.iter().max().unwrap() - cols.iter().min().unwrap() == 1;
-        let same_col = cols.len() == 1
-            && rows.iter().max().unwrap() - rows.iter().min().unwrap() == 1;
+        let same_row =
+            rows.len() == 1 && cols.iter().max().unwrap() - cols.iter().min().unwrap() == 1;
+        let same_col =
+            cols.len() == 1 && rows.iter().max().unwrap() - rows.iter().min().unwrap() == 1;
         let diagonal = rows.len() == 2
             && cols.len() == 2
             && rows.iter().max().unwrap() - rows.iter().min().unwrap() == 1
@@ -109,8 +109,10 @@ pub fn classify_chord(targets: &[CellTarget]) -> Option<&'static str> {
         cols.sort_unstable();
         cols.dedup();
         if rows.len() == 2 && cols.len() == 2 {
-            let expected: std::collections::HashSet<_> =
-                rows.iter().flat_map(|r| cols.iter().map(move |c| (*r, *c))).collect();
+            let expected: std::collections::HashSet<_> = rows
+                .iter()
+                .flat_map(|r| cols.iter().map(move |c| (*r, *c)))
+                .collect();
             let actual: std::collections::HashSet<_> =
                 targets.iter().map(|t| (t.row, t.column)).collect();
             if actual == expected {
@@ -132,18 +134,21 @@ pub fn expanded_bounds(rect: Bounds, screen_bounds: Bounds, next_depth: u32) -> 
     if next_depth == 1 {
         width_ratio = REFINEMENT_WIDTH_EXPANSION_RATIO;
     } else if next_depth == 2 {
-        let compact_factor = ((COMPACT_SCREEN_WIDTH_THRESHOLD - screen_width as f64) / 500.0)
-            .clamp(0.0, 1.0);
+        let compact_factor =
+            ((COMPACT_SCREEN_WIDTH_THRESHOLD - screen_width as f64) / 500.0).clamp(0.0, 1.0);
         let target_key_width = FINAL_CLICK_DESKTOP_TARGET_KEY_WIDTH
             + (FINAL_CLICK_LAPTOP_TARGET_KEY_WIDTH - FINAL_CLICK_DESKTOP_TARGET_KEY_WIDTH)
                 * compact_factor;
         height_ratio = FINAL_CLICK_DESKTOP_HEIGHT_EXPANSION_RATIO
-            + (FINAL_CLICK_LAPTOP_HEIGHT_EXPANSION_RATIO - FINAL_CLICK_DESKTOP_HEIGHT_EXPANSION_RATIO)
+            + (FINAL_CLICK_LAPTOP_HEIGHT_EXPANSION_RATIO
+                - FINAL_CLICK_DESKTOP_HEIGHT_EXPANSION_RATIO)
                 * compact_factor;
         let base_width = rect_width as f64 * (1.0 + 2.0 * FINAL_CLICK_BASE_WIDTH_EXPANSION_RATIO);
         let target_width_from_keys = target_key_width * crate::geometry::max_columns() as f64;
         let max_allowed_width = screen_width as f64 * FINAL_CLICK_MAX_SCREEN_WIDTH_FRACTION;
-        let desired_width = base_width.max(target_width_from_keys).min(max_allowed_width);
+        let desired_width = base_width
+            .max(target_width_from_keys)
+            .min(max_allowed_width);
         width_ratio = ((desired_width / rect_width.max(1) as f64 - 1.0) / 2.0).max(0.0);
     }
 
@@ -203,17 +208,30 @@ mod tests {
 
     #[test]
     fn chord_classification() {
-        let pair: Vec<CellTarget> = ["z", "x"].iter().filter_map(|k| find_cell_for_key(k)).collect();
+        let pair: Vec<CellTarget> = ["z", "x"]
+            .iter()
+            .filter_map(|k| find_cell_for_key(k))
+            .collect();
         assert_eq!(classify_chord(&pair), Some("pair"));
-        let vertical: Vec<CellTarget> = ["q", "a"].iter().filter_map(|k| find_cell_for_key(k)).collect();
+        let vertical: Vec<CellTarget> = ["q", "a"]
+            .iter()
+            .filter_map(|k| find_cell_for_key(k))
+            .collect();
         assert_eq!(classify_chord(&vertical), Some("pair"));
-        let diagonal: Vec<CellTarget> = ["q", "s"].iter().filter_map(|k| find_cell_for_key(k)).collect();
+        let diagonal: Vec<CellTarget> = ["q", "s"]
+            .iter()
+            .filter_map(|k| find_cell_for_key(k))
+            .collect();
         assert_eq!(classify_chord(&diagonal), Some("pair"));
         let quad: Vec<CellTarget> = ["a", "s", "z", "x"]
-            .iter().filter_map(|k| find_cell_for_key(k)).collect();
+            .iter()
+            .filter_map(|k| find_cell_for_key(k))
+            .collect();
         assert_eq!(classify_chord(&quad), Some("quad"));
         let non: Vec<CellTarget> = ["a", "l"]
-            .iter().filter_map(|k| find_cell_for_key(k)).collect();
+            .iter()
+            .filter_map(|k| find_cell_for_key(k))
+            .collect();
         assert_eq!(classify_chord(&non), None);
     }
 }

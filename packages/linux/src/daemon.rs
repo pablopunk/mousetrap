@@ -8,33 +8,32 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::sync::mpsc as std_mpsc;
 use std::sync::Arc;
+use std::sync::mpsc as std_mpsc;
 use std::time::{Duration, Instant, SystemTime};
 
-use calloop::channel::{channel, Event as ChannelEvent};
-use calloop::timer::{TimeoutAction, Timer};
 use calloop::EventLoop;
+use calloop::channel::{Event as ChannelEvent, channel};
+use calloop::timer::{TimeoutAction, Timer};
 use calloop_wayland_source::WaylandSource;
-use smithay_client_toolkit as sctk;
 use sctk::compositor::{CompositorHandler, CompositorState};
 use sctk::output::{OutputHandler, OutputState};
 use sctk::registry::{ProvidesRegistryState, RegistryState};
-use sctk::shell::wlr_layer::{
-    LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure,
-};
+use sctk::shell::wlr_layer::{LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure};
 use sctk::shm::{Shm, ShmHandler};
-use sctk::{
-    delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_shm,
-};
-use wayland_client::globals::{registry_queue_init, GlobalList};
+use sctk::{delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_shm};
+use smithay_client_toolkit as sctk;
+use wayland_client::globals::{GlobalList, registry_queue_init};
 use wayland_client::protocol::{wl_output, wl_surface};
 use wayland_client::{Connection, QueueHandle};
 
 use crate::config::Settings;
-use crate::input::VirtualPointer;
+use crate::cursor;
+use crate::geometry::{Bounds, rect_center};
+use crate::input::{BTN_LEFT, VirtualPointer};
 use crate::ipc::{self, Request, Response};
-use crate::keys::{KeyEvent, KeyboardGrab};
+use crate::keys::{ArrowDirection, KeyEvent, KeyboardGrab};
+use crate::mouse::{MouseEvent, MouseObserver};
 use crate::overlay::Overlay;
 use crate::shortcuts::{ShortcutEvent, ShortcutState};
 use crate::state::{KeyResult, OverlaySession, SelectionResult, SessionState};
@@ -65,6 +64,10 @@ pub struct Daemon {
     pub pointer_warning: Option<String>,
     pub keyboard: Option<KeyboardGrab>,
     pub keyboard_warning: Option<String>,
+    free_mouse: Option<FreeMouseState>,
+    pending_free_mouse_click: Option<PendingFreeMouseClick>,
+    free_mouse_drag_active: bool,
+    mouse_observer: Option<MouseObserver>,
 
     action: Option<PendingAction>,
     keys_tx: calloop::channel::Sender<KeyEvent>,
@@ -101,6 +104,28 @@ struct PendingAction {
     ready_at: Instant,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct FreeMouseState {
+    position: (i32, i32),
+    screen_size: (i32, i32),
+    /// Whether absolute movement can keep the tracked and physical positions aligned.
+    position_known: bool,
+    last_activity: Instant,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PendingFreeMouseClick {
+    point: (i32, i32),
+    ready_at: Instant,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum FreeClick {
+    Single,
+    Double,
+    Right,
+}
+
 impl Daemon {
     fn new(
         globals: &GlobalList,
@@ -115,6 +140,7 @@ impl Daemon {
         let layer_shell =
             LayerShell::bind(globals, &qh).map_err(|e| format!("zwlr_layer_shell_v1: {e:?}"))?;
         let output_state = OutputState::new(globals, &qh);
+        let settings = Settings::load();
         Ok(Self {
             registry_state,
             compositor,
@@ -123,12 +149,16 @@ impl Daemon {
             output_state,
             qh,
             overlay: Overlay::new(),
-            settings: Settings::load(),
+            settings,
             session: None,
             pointer: None,
             pointer_warning: None,
             keyboard: None,
             keyboard_warning: None,
+            free_mouse: None,
+            pending_free_mouse_click: None,
+            free_mouse_drag_active: false,
+            mouse_observer: None,
             action: None,
             keys_tx,
             last_tray_activate: None,
@@ -150,6 +180,7 @@ impl Daemon {
             }
             Request::KeyDown { key } => self.key_down(&key),
             Request::KeyUp { key } => self.key_up(&key),
+            Request::SetSetting { key, value } => self.set_setting(&key, &value),
             Request::Ping => Response::ok("pong"),
         }
     }
@@ -166,6 +197,13 @@ impl Daemon {
             }
         }
         if self.keyboard.is_none() {
+            self.key_processed_at.store(
+                SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|duration| duration.as_nanos() as u64)
+                    .unwrap_or(0),
+                std::sync::atomic::Ordering::Relaxed,
+            );
             match KeyboardGrab::start(
                 self.keys_tx.clone(),
                 self.settings.session_timeout_seconds,
@@ -182,7 +220,13 @@ impl Daemon {
         let session = OverlaySession::new(state.clone());
         self.session = Some(session);
         {
-            let Daemon { overlay, compositor, layer_shell, qh, .. } = self;
+            let Daemon {
+                overlay,
+                compositor,
+                layer_shell,
+                qh,
+                ..
+            } = self;
             overlay.ensure_surface(compositor, layer_shell, qh);
             overlay.state = Some(state);
             overlay.show();
@@ -201,13 +245,226 @@ impl Daemon {
         }
     }
 
+    fn enter_free_mouse(&mut self, direction: ArrowDirection, shift: bool) {
+        if self.free_mouse.is_none() {
+            // Transition from grid to free mode without releasing the grab.
+            // The same keyboard stream must consume the arrow that triggered
+            // the transition, just as the macOS event tap does.
+            let current_bounds = self
+                .session
+                .as_ref()
+                .map(|session| session.state.current_bounds)
+                .unwrap_or(self.overlay.bounds);
+            self.session = None;
+            self.chord_commit_at = None;
+            self.action = None;
+
+            let screen_size = (
+                (self.overlay.size.0 as i32).max(1),
+                (self.overlay.size.1 as i32).max(1),
+            );
+            let position = free_mouse_start_position(current_bounds, screen_size);
+            let position_known = self.pointer.as_mut().is_some_and(|pointer| {
+                match pointer.move_abs(position.0, position.1, screen_size.0, screen_size.1) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        eprintln!("mousetrap: free cursor initial move failed: {e}");
+                        false
+                    }
+                }
+            });
+            self.free_mouse = Some(FreeMouseState {
+                position,
+                screen_size,
+                position_known,
+                last_activity: Instant::now(),
+            });
+            self.overlay.show_indicator(position);
+            self.overlay.redraw(&self.shm);
+        }
+        self.move_free_mouse(direction, shift);
+    }
+
+    fn move_free_mouse(&mut self, direction: ArrowDirection, shift: bool) {
+        self.cancel_pending_free_mouse_click();
+        if !shift {
+            self.end_free_mouse_drag();
+        } else if !self.free_mouse_drag_active {
+            if let Some(pointer) = self.pointer.as_mut() {
+                match pointer.drag_start(BTN_LEFT) {
+                    Ok(()) => self.free_mouse_drag_active = true,
+                    Err(e) => eprintln!("mousetrap: drag start failed: {e}"),
+                }
+            }
+        }
+        let Some(state) = self.free_mouse else { return };
+        let step = self.settings.free_mouse_step.clamp(4.0, 80.0).round() as i32;
+        let (dx, dy) = match direction {
+            ArrowDirection::Up => (0, -step),
+            ArrowDirection::Down => (0, step),
+            ArrowDirection::Left => (-step, 0),
+            ArrowDirection::Right => (step, 0),
+        };
+        let target = clamp_point(
+            (state.position.0 + dx, state.position.1 + dy),
+            state.screen_size,
+        );
+        let actual_dx = target.0 - state.position.0;
+        let actual_dy = target.1 - state.position.1;
+        let moved = if actual_dx == 0 && actual_dy == 0 {
+            true
+        } else if let Some(pointer) = self.pointer.as_mut() {
+            let result = if state.position_known {
+                pointer.move_abs(target.0, target.1, state.screen_size.0, state.screen_size.1)
+            } else {
+                pointer.move_relative(actual_dx, actual_dy)
+            };
+            if let Err(e) = result {
+                eprintln!("mousetrap: free cursor move failed: {e}");
+                false
+            } else {
+                true
+            }
+        } else {
+            false
+        };
+
+        if moved {
+            if let Some(state) = &mut self.free_mouse {
+                state.position = target;
+                state.last_activity = Instant::now();
+            }
+            self.overlay.update_indicator(target);
+            self.overlay.invalidate();
+            self.overlay.redraw(&self.shm);
+        }
+    }
+
+    fn handle_free_mouse_enter(&mut self, shift: bool) {
+        self.end_free_mouse_drag();
+        let Some(state) = self.free_mouse else { return };
+        if let Some(state) = &mut self.free_mouse {
+            state.last_activity = Instant::now();
+        }
+
+        if shift {
+            self.cancel_pending_free_mouse_click();
+            self.finish_free_mouse_click(state.position, FreeClick::Right);
+        } else if self.pending_free_mouse_click.is_some() {
+            self.cancel_pending_free_mouse_click();
+            self.finish_free_mouse_click(state.position, FreeClick::Double);
+        } else {
+            self.pending_free_mouse_click = Some(PendingFreeMouseClick {
+                point: state.position,
+                ready_at: Instant::now() + Duration::from_millis(250),
+            });
+        }
+    }
+
+    fn finish_free_mouse_click(&mut self, point: (i32, i32), click: FreeClick) {
+        // Release the grab before posting the click so it is delivered to the
+        // application beneath the pointer, not to Mousetrap's input stream.
+        let position_known = self
+            .free_mouse
+            .map(|state| state.position_known)
+            .unwrap_or(true);
+        self.cancel_pending_free_mouse_click();
+        self.end_free_mouse_drag();
+        self.free_mouse = None;
+        if let Some(mut keyboard) = self.keyboard.take() {
+            keyboard.stop();
+        }
+        self.overlay.hide();
+
+        let Some(pointer) = self.pointer.as_mut() else {
+            return;
+        };
+        let screen_size = (
+            (self.overlay.size.0 as i32).max(1),
+            (self.overlay.size.1 as i32).max(1),
+        );
+        if position_known {
+            if let Err(e) = pointer.move_abs(point.0, point.1, screen_size.0, screen_size.1) {
+                eprintln!("mousetrap: free click cursor move failed: {e}");
+                return;
+            }
+        }
+        let result = match click {
+            FreeClick::Single => pointer.left_click(),
+            FreeClick::Double => pointer.double_click(
+                BTN_LEFT,
+                self.settings.double_click_interval_seconds.max(0.0),
+            ),
+            FreeClick::Right => pointer.right_click(),
+        };
+        if let Err(e) = result {
+            eprintln!("mousetrap: free click failed: {e}");
+        }
+    }
+
+    fn end_free_mouse_drag(&mut self) {
+        if !self.free_mouse_drag_active {
+            return;
+        }
+        self.free_mouse_drag_active = false;
+        if let Some(pointer) = self.pointer.as_mut() {
+            if let Err(e) = pointer.drag_end(BTN_LEFT) {
+                eprintln!("mousetrap: drag release failed: {e}");
+            }
+        }
+    }
+
+    fn cancel_pending_free_mouse_click(&mut self) {
+        self.pending_free_mouse_click = None;
+    }
+
     fn key_down(&mut self, key: &str) -> Response {
+        let normalized = key.trim().to_lowercase();
+        if let Some((direction, shift)) = parse_arrow(&normalized) {
+            if self.session.is_some() || self.free_mouse.is_some() {
+                self.handle_arrow(direction, shift);
+                return Response::ok("moved");
+            }
+            return Response::err("no active session");
+        }
+        match normalized.as_str() {
+            "escape" => {
+                self.cancel_session();
+                return Response::ok("cancelled");
+            }
+            "enter" => {
+                self.handle_enter(false);
+                return Response::ok("handled");
+            }
+            "shift+enter" => {
+                self.handle_enter(true);
+                return Response::ok("handled");
+            }
+            "space" => {
+                self.handle_space();
+                return Response::ok("handled");
+            }
+            "delete" | "backspace" => {
+                self.handle_delete();
+                return Response::ok("handled");
+            }
+            _ => {}
+        }
+        if self.free_mouse.is_some() {
+            // Grid characters are swallowed while free mode is active, but a
+            // character also ends an active drag just like macOS.
+            self.end_free_mouse_drag();
+            return Response::ok("ignored");
+        }
         // A new key during the grace period joins the pending chord.
         self.chord_commit_at = None;
         let Some(session) = self.session.as_mut() else {
             return Response::err("no active session");
         };
-        if session.state.has_timed_out(self.settings.session_timeout_seconds) {
+        if session
+            .state
+            .has_timed_out(self.settings.session_timeout_seconds)
+        {
             self.cancel_session();
             return Response::err("session timed out");
         }
@@ -220,7 +477,77 @@ impl Daemon {
         }
     }
 
+    fn handle_arrow(&mut self, direction: ArrowDirection, shift: bool) {
+        if self.free_mouse.is_some() {
+            self.move_free_mouse(direction, shift);
+        } else if self.session.is_some() {
+            self.enter_free_mouse(direction, shift);
+        }
+    }
+
+    fn handle_enter(&mut self, shift: bool) {
+        if self.free_mouse.is_some() {
+            self.handle_free_mouse_enter(shift);
+        } else if self.session.is_some() {
+            self.click_grid_cursor(shift);
+        }
+    }
+
+    fn handle_space(&mut self) {
+        self.handle_enter(false);
+    }
+
+    fn handle_delete(&mut self) {
+        if self.free_mouse.is_some() {
+            self.end_free_mouse_drag();
+        }
+    }
+
+    fn click_grid_cursor(&mut self, right: bool) {
+        let screen_size = (
+            (self.overlay.size.0 as i32).max(1),
+            (self.overlay.size.1 as i32).max(1),
+        );
+        let point = cursor::query(screen_size)
+            .map(|point| clamp_point(point, screen_size))
+            .unwrap_or((screen_size.0 / 2, screen_size.1 / 2));
+
+        self.session = None;
+        self.chord_commit_at = None;
+        self.action = None;
+        if let Some(mut keyboard) = self.keyboard.take() {
+            keyboard.stop();
+        }
+        self.overlay.hide();
+
+        let Some(pointer) = self.pointer.as_mut() else {
+            return;
+        };
+        if let Err(e) = pointer.move_abs(point.0, point.1, screen_size.0, screen_size.1) {
+            eprintln!("mousetrap: grid click cursor move failed: {e}");
+            return;
+        }
+        let result = if right {
+            pointer.right_click()
+        } else {
+            pointer.left_click()
+        };
+        if let Err(e) = result {
+            eprintln!("mousetrap: grid click failed: {e}");
+        }
+    }
+
+    fn physical_mouse_moved(&mut self) {
+        if self.session.is_some() || self.free_mouse.is_some() {
+            eprintln!("mousetrap: physical mouse movement; resetting to safe state");
+            self.cancel_session();
+        }
+    }
+
     fn key_up(&mut self, key: &str) -> Response {
+        if self.free_mouse.is_some() || is_special_key(key) {
+            return Response::ok("ignored");
+        }
         let Some(session) = self.session.as_mut() else {
             return Response::err("no active session");
         };
@@ -236,7 +563,10 @@ impl Daemon {
 
     fn commit_pending_chord(&mut self) -> Response {
         self.chord_commit_at = None;
-        let selection = self.session.as_mut().and_then(OverlaySession::commit_pending);
+        let selection = self
+            .session
+            .as_mut()
+            .and_then(OverlaySession::commit_pending);
         let Some(selection) = selection else {
             return Response::ok("no pending selection");
         };
@@ -277,12 +607,15 @@ impl Daemon {
     }
 
     fn cancel_session(&mut self) {
+        self.cancel_pending_free_mouse_click();
+        self.end_free_mouse_drag();
         // Release the keyboard grab first so keystrokes resume reaching
         // applications immediately.
         if let Some(mut keyboard) = self.keyboard.take() {
             keyboard.stop();
         }
         self.session = None;
+        self.free_mouse = None;
         self.action = None;
         self.chord_commit_at = None;
         let Daemon { overlay, .. } = self;
@@ -303,7 +636,8 @@ impl Daemon {
     /// Show shortcut setup instructions through the desktop notification
     /// service. This must never map an overlay or capture keyboard input.
     fn show_shortcut_help(&mut self) {
-        let state = self.shortcut_state
+        let state = self
+            .shortcut_state
             .lock()
             .map(|state| state.clone())
             .unwrap_or(ShortcutState::Registering);
@@ -311,7 +645,12 @@ impl Daemon {
     }
 
     fn refresh_overlay(&mut self) {
-        let Daemon { overlay, session, shm, .. } = self;
+        let Daemon {
+            overlay,
+            session,
+            shm,
+            ..
+        } = self;
         overlay.state = session.as_ref().map(|s| s.state.clone());
         overlay.invalidate();
         overlay.redraw(shm);
@@ -322,6 +661,69 @@ impl Daemon {
             if !cmd.trim().is_empty() {
                 let _ = std::process::Command::new("sh").arg("-c").arg(cmd).spawn();
             }
+        }
+    }
+
+    fn save_settings(&mut self) {
+        if let Err(e) = self.settings.save() {
+            eprintln!("mousetrap: settings save failed: {e}");
+        }
+    }
+
+    fn set_setting(&mut self, key: &str, value: &str) -> Response {
+        match key {
+            "free-mouse-step" => {
+                let Ok(step) = value.parse::<f64>() else {
+                    return Response::err("free-mouse-step must be a number");
+                };
+                if !step.is_finite() {
+                    return Response::err("free-mouse-step must be finite");
+                }
+                self.settings.free_mouse_step = step.clamp(1.0, 20.0);
+                self.save_settings();
+                Response::ok("free-mouse-step updated")
+            }
+            "session-timeout-seconds" => {
+                let Ok(timeout) = value.parse::<f64>() else {
+                    return Response::err("session-timeout-seconds must be a number");
+                };
+                if !timeout.is_finite() {
+                    return Response::err("session-timeout-seconds must be finite");
+                }
+                self.settings.session_timeout_seconds = timeout.clamp(3.0, 60.0);
+                self.save_settings();
+                Response::ok("session-timeout-seconds updated")
+            }
+            "double-click-interval-seconds" => {
+                let Ok(interval) = value.parse::<f64>() else {
+                    return Response::err("double-click-interval-seconds must be a number");
+                };
+                if !interval.is_finite() {
+                    return Response::err("double-click-interval-seconds must be finite");
+                }
+                self.settings.double_click_interval_seconds = interval.clamp(0.05, 0.5);
+                self.save_settings();
+                Response::ok("double-click-interval-seconds updated")
+            }
+            "launch-at-login" => {
+                let Some(enabled) = parse_bool(value) else {
+                    return Response::err("launch-at-login must be on or off");
+                };
+                self.set_launch_at_login(enabled)
+            }
+            _ => Response::err(format!("unknown setting: {key}")),
+        }
+    }
+
+    fn set_launch_at_login(&mut self, enabled: bool) -> Response {
+        let action = if enabled { "enable" } else { "disable" };
+        match std::process::Command::new("systemctl")
+            .args(["--user", action, "app-mousetrap.service"])
+            .status()
+        {
+            Ok(status) if status.success() => Response::ok("launch-at-login updated"),
+            Ok(status) => Response::err(format!("systemd {action} failed ({status})")),
+            Err(e) => Response::err(format!("cannot change launch-at-login: {e}")),
         }
     }
 
@@ -344,7 +746,9 @@ impl Daemon {
                 if clicks_enabled {
                     let (w, h) = self.overlay.size;
                     if let Some(pointer) = self.pointer.as_mut() {
-                        if let Err(e) = pointer.move_abs(action.point.0, action.point.1, w as i32, h as i32) {
+                        if let Err(e) =
+                            pointer.move_abs(action.point.0, action.point.1, w as i32, h as i32)
+                        {
                             eprintln!("mousetrap: cursor move failed: {e}");
                         }
                     }
@@ -371,6 +775,18 @@ impl Daemon {
 
     /// Action timer callback: advance phases on schedule.
     fn on_action_timer(&mut self) -> TimeoutAction {
+        if self
+            .pending_free_mouse_click
+            .is_some_and(|click| Instant::now() >= click.ready_at)
+        {
+            if let Some(click) = self.pending_free_mouse_click {
+                self.finish_free_mouse_click(click.point, FreeClick::Single);
+            }
+        }
+        if self.overlay.has_indicator() {
+            self.overlay.invalidate();
+            self.overlay.redraw(&self.shm);
+        }
         if self.chord_commit_at.is_some_and(|at| Instant::now() >= at) {
             let _ = self.commit_pending_chord();
         }
@@ -390,14 +806,66 @@ impl Daemon {
 
     /// Periodic tick: enforce the session timeout.
     fn tick(&mut self) {
-        self.heartbeat.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.heartbeat
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if let Some(session) = &self.session {
-            if session.state.has_timed_out(self.settings.session_timeout_seconds) {
+            if session
+                .state
+                .has_timed_out(self.settings.session_timeout_seconds)
+            {
                 eprintln!("mousetrap: session timed out; cancelling");
                 self.cancel_session();
             }
         }
+        if self.free_mouse.as_ref().is_some_and(|state| {
+            self.settings.session_timeout_seconds > 0.0
+                && state.last_activity.elapsed().as_secs_f64()
+                    > self.settings.session_timeout_seconds
+        }) {
+            eprintln!("mousetrap: free-mouse timeout reached; cancelling");
+            self.cancel_session();
+        }
     }
+}
+
+fn clamp_point(point: (i32, i32), size: (i32, i32)) -> (i32, i32) {
+    (
+        point.0.clamp(0, size.0.saturating_sub(1)),
+        point.1.clamp(0, size.1.saturating_sub(1)),
+    )
+}
+
+fn free_mouse_start_position(bounds: Bounds, screen_size: (i32, i32)) -> (i32, i32) {
+    let center = if bounds.2 > 0 && bounds.3 > 0 {
+        rect_center(bounds)
+    } else {
+        (screen_size.0 / 2, screen_size.1 / 2)
+    };
+    clamp_point(center, screen_size)
+}
+
+fn parse_arrow(key: &str) -> Option<(ArrowDirection, bool)> {
+    let (shift, direction) = match key.strip_prefix("shift+") {
+        Some(direction) => (true, direction),
+        None => (false, key),
+    };
+    let direction = match direction {
+        "up" => ArrowDirection::Up,
+        "down" => ArrowDirection::Down,
+        "left" => ArrowDirection::Left,
+        "right" => ArrowDirection::Right,
+        _ => return None,
+    };
+    Some((direction, shift))
+}
+
+fn is_special_key(key: &str) -> bool {
+    let key = key.trim().to_lowercase();
+    parse_arrow(&key).is_some()
+        || matches!(
+            key.as_str(),
+            "escape" | "enter" | "shift+enter" | "space" | "delete" | "backspace"
+        )
 }
 
 // ---------------------------------------------------------------------------
@@ -426,6 +894,14 @@ impl ProvidesRegistryState for Daemon {
         _name: u32,
         _interface: &str,
     ) {
+    }
+}
+
+fn parse_bool(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "on" | "yes" => Some(true),
+        "0" | "false" | "off" | "no" => Some(false),
+        _ => None,
     }
 }
 
@@ -517,18 +993,15 @@ impl CompositorHandler for Daemon {
 }
 
 impl LayerShellHandler for Daemon {
-    fn closed(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        layer: &LayerSurface,
-    ) {
+    fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, layer: &LayerSurface) {
         // A destroy of an OLD surface can deliver `closed` after a NEW
         // surface has already been shown; only hide when it is still the
         // current surface.
         let is_current = self.overlay.is_current_surface(layer);
         if is_current {
-            self.overlay.hide();
+            // Losing the layer while a keyboard grab/free drag is active is
+            // an unsafe state; release all input ownership immediately.
+            self.cancel_session();
         }
     }
 
@@ -593,9 +1066,7 @@ fn ipc_accept_loop(listener: UnixListener, tx: calloop::channel::Sender<IpcMessa
     for stream in listener.incoming() {
         let Ok(mut stream) = stream else { continue };
         let mut line = String::new();
-        let mut reader = BufReader::new(
-            stream.try_clone().expect("clone stream"),
-        );
+        let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
         if reader.read_line(&mut line).is_err() {
             continue;
         }
@@ -635,7 +1106,9 @@ fn resolve_wayland_display() {
     let mut newest: Option<(SystemTime, std::ffi::OsString)> = None;
     for entry in entries.flatten() {
         let name = entry.file_name();
-        let Some(name_str) = name.to_str() else { continue };
+        let Some(name_str) = name.to_str() else {
+            continue;
+        };
         let Some(num) = name_str.strip_prefix("wayland-") else {
             continue;
         };
@@ -643,12 +1116,10 @@ fn resolve_wayland_display() {
             continue;
         }
         let Ok(meta) = entry.metadata() else { continue };
-        let Ok(modified) = meta.modified() else { continue };
-        if newest
-            .as_ref()
-            .map(|(t, _)| modified > *t)
-            .unwrap_or(true)
-        {
+        let Ok(modified) = meta.modified() else {
+            continue;
+        };
+        if newest.as_ref().map(|(t, _)| modified > *t).unwrap_or(true) {
             newest = Some((modified, name));
         }
     }
@@ -712,15 +1183,16 @@ pub fn run() -> i32 {
         }
     });
 
-    if let Err(e) = handle.insert_source(WaylandSource::new(conn.clone(), event_queue), |_, queue, data| {
-        match queue.dispatch_pending(data) {
+    if let Err(e) = handle.insert_source(
+        WaylandSource::new(conn.clone(), event_queue),
+        |_, queue, data| match queue.dispatch_pending(data) {
             Ok(count) => Ok(count),
             Err(err) => {
                 eprintln!("mousetrap: wayland error: {err:?}; exiting");
                 std::process::exit(1);
             }
-        }
-    }) {
+        },
+    ) {
         eprintln!("mousetrap: cannot start wayland source: {e}");
         return 1;
     }
@@ -731,7 +1203,8 @@ pub fn run() -> i32 {
     std::thread::spawn(move || ipc_accept_loop(listener, ipc_tx));
     if let Err(e) = handle.insert_source(ipc_rx, |event, _, app| {
         if let ChannelEvent::Msg((request, reply)) = event {
-            app.heartbeat.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            app.heartbeat
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let response = app.process_request(request);
             let _ = reply.send(response);
         }
@@ -743,7 +1216,8 @@ pub fn run() -> i32 {
     // Keyboard grab events (evdev).
     if let Err(e) = handle.insert_source(keys_rx, |event, _, app| {
         if let ChannelEvent::Msg(event) = event {
-            app.heartbeat.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            app.heartbeat
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             app.key_processed_at.store(
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -759,10 +1233,29 @@ pub fn run() -> i32 {
                     let _ = app.key_up(&key);
                 }
                 KeyEvent::Escape => app.cancel_session(),
+                KeyEvent::Arrow { direction, shift } => app.handle_arrow(direction, shift),
+                KeyEvent::Enter { shift } => app.handle_enter(shift),
+                KeyEvent::Space => app.handle_space(),
+                KeyEvent::Delete => app.handle_delete(),
             }
         }
     }) {
         eprintln!("mousetrap: cannot start keyboard source: {e}");
+        return 1;
+    }
+
+    // Passive physical-pointer observer. It never grabs a device and filters
+    // Mousetrap's own virtual pointer in mouse.rs.
+    let (mouse_tx, mouse_rx) = channel::<MouseEvent>();
+    daemon.mouse_observer = Some(MouseObserver::start(mouse_tx));
+    if let Err(e) = handle.insert_source(mouse_rx, |event, _, app| {
+        if let ChannelEvent::Msg(MouseEvent::Moved) = event {
+            app.heartbeat
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            app.physical_mouse_moved();
+        }
+    }) {
+        eprintln!("mousetrap: cannot start mouse source: {e}");
         return 1;
     }
 
@@ -791,6 +1284,9 @@ pub fn run() -> i32 {
                 TrayEvent::ShortcutHelp => {
                     app.show_shortcut_help();
                 }
+                TrayEvent::OpenSettings => {
+                    crate::tray::launch_settings();
+                }
                 TrayEvent::Quit => {
                     app.cancel_session();
                     // Never exit abruptly: the tray host may still be
@@ -816,7 +1312,8 @@ pub fn run() -> i32 {
     crate::shortcuts::spawn(shortcut_tx, shortcut_state);
     if let Err(e) = handle.insert_source(shortcut_rx, |event, _, app| {
         if let ChannelEvent::Msg(ShortcutEvent::Activated) = event {
-            app.heartbeat.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            app.heartbeat
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             app.toggle_from_shortcut();
         }
     }) {
@@ -911,11 +1408,31 @@ pub fn client_cancel() -> i32 {
 
 pub fn client_key(direction: &str, key: &str) -> i32 {
     let request = match direction {
-        "down" => Request::KeyDown { key: key.to_string() },
-        "up" => Request::KeyUp { key: key.to_string() },
+        "down" => Request::KeyDown {
+            key: key.to_string(),
+        },
+        "up" => Request::KeyUp {
+            key: key.to_string(),
+        },
         _ => return 2,
     };
     let response = ipc::send(&request).unwrap_or_else(|_| Response::err("daemon not running"));
+    if response.ok {
+        response.exit_code
+    } else {
+        eprintln!("mousetrap: {}", response.message);
+        1
+    }
+}
+
+pub fn client_set_setting(key: &str, value: &str) -> i32 {
+    let request = Request::SetSetting {
+        key: key.to_string(),
+        value: value.to_string(),
+    };
+    let response = ensure_daemon()
+        .and_then(|_| ipc::send(&request).ok())
+        .unwrap_or_else(|| Response::err("daemon unavailable"));
     if response.ok {
         response.exit_code
     } else {
@@ -932,7 +1449,12 @@ mod tests {
         // Pure state-machine test without a wayland connection: exercise the
         // session logic directly.
         let mut session = Some(OverlaySession::new(SessionState::start((0, 0, 2048, 1152))));
-        let mut result = (Response::ok(""), Response::ok(""), Response::ok(""), Response::ok(""));
+        let mut result = (
+            Response::ok(""),
+            Response::ok(""),
+            Response::ok(""),
+            Response::ok(""),
+        );
         let mut last: Option<SelectionResult> = None;
         for round in 0..3 {
             let s = session.as_mut().unwrap();
@@ -956,5 +1478,37 @@ mod tests {
         let settings = Settings::default();
         let (_, _, _, last) = flow(&settings);
         assert_eq!(last.message, "final");
+    }
+
+    #[test]
+    fn free_mouse_coordinates_stop_at_screen_edges() {
+        assert_eq!(clamp_point((-5, 20), (100, 50)), (0, 20));
+        assert_eq!(clamp_point((100, 50), (100, 50)), (99, 49));
+    }
+
+    #[test]
+    fn free_mouse_starts_at_current_grid_center() {
+        assert_eq!(
+            free_mouse_start_position((320, 120, 400, 200), (1920, 1080)),
+            (520, 220)
+        );
+        assert_eq!(
+            free_mouse_start_position((0, 0, 0, 0), (1920, 1080)),
+            (960, 540)
+        );
+    }
+
+    #[test]
+    fn free_mouse_key_names_include_shift_variants() {
+        assert!(matches!(
+            parse_arrow("up"),
+            Some((ArrowDirection::Up, false))
+        ));
+        assert!(matches!(
+            parse_arrow("shift+right"),
+            Some((ArrowDirection::Right, true))
+        ));
+        assert!(is_special_key("shift+enter"));
+        assert!(!is_special_key("a"));
     }
 }

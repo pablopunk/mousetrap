@@ -1,8 +1,9 @@
 //! Tray presence via StatusNotifierItem (SNI) over DBus.
 //!
 //! Registers `org.kde.StatusNotifierItem-<pid>-1` on the session bus with a
-//! `com.canonical.dbusmenu` menu (Activate / Cancel / Quit), and registers
-//! with the StatusNotifierWatcher so trays like Quickshell's display it.
+//! `com.canonical.dbusmenu` menu (Activate / Cancel / Open Settings / Quit),
+//! and registers with the StatusNotifierWatcher so trays like Quickshell's
+//! display it.
 //! Runs on its own thread (zbus blocking API); menu events are forwarded to
 //! the main loop through a calloop channel.
 
@@ -23,6 +24,7 @@ pub enum TrayEvent {
     Activate,
     Cancel,
     Quit,
+    OpenSettings,
     /// User clicked the "Toggle shortcut" menu item.
     ShortcutHelp,
 }
@@ -36,7 +38,9 @@ fn icon_pixmap() -> Vec<(i32, i32, Vec<u8>)> {
     let png_bytes: &[u8] = include_bytes!("../assets/AppIcon.png");
     let mut decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
     decoder.set_transformations(png::Transformations::normalize_to_color8());
-    let mut reader = decoder.read_info().expect("embedded app icon is a valid png");
+    let mut reader = decoder
+        .read_info()
+        .expect("embedded app icon is a valid png");
     let mut raw = vec![0; reader.output_buffer_size().expect("icon size known")];
     let info = reader.next_frame(&mut raw).expect("icon decodes");
     let (sw, sh) = (info.width as usize, info.height as usize);
@@ -61,6 +65,7 @@ fn icon_pixmap() -> Vec<(i32, i32, Vec<u8>)> {
 
 pub struct Sni {
     pixmap: Vec<(i32, i32, Vec<u8>)>,
+    tx: Sender<TrayEvent>,
 }
 
 #[interface(name = "org.kde.StatusNotifierItem")]
@@ -92,7 +97,7 @@ impl Sni {
 
     #[zbus(property)]
     fn item_is_menu(&self) -> bool {
-        true
+        false
     }
 
     #[zbus(property)]
@@ -104,12 +109,20 @@ impl Sni {
     fn icon_pixmap(&self) -> Vec<(i32, i32, Vec<u8>)> {
         self.pixmap.clone()
     }
+
+    fn activate(&self, _x: i32, _y: i32) {
+        let _ = self.tx.send(TrayEvent::OpenSettings);
+    }
 }
 
 /// DBusMenu layout: (id, properties, children-as-variants).
 type Layout = (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>);
 
-fn insert_prop(props: &mut HashMap<String, OwnedValue>, key: &str, value: impl Into<Value<'static>>) {
+fn insert_prop(
+    props: &mut HashMap<String, OwnedValue>,
+    key: &str,
+    value: impl Into<Value<'static>>,
+) {
     let owned = OwnedValue::try_from(value.into()).expect("own our own values");
     props.insert(key.to_string(), owned);
 }
@@ -129,8 +142,6 @@ fn item(id: i32, label: &str, is_separator: bool) -> OwnedValue {
 
 pub struct Menu {
     tx: Sender<TrayEvent>,
-    /// Layout revision, incremented when the menu changes.
-    revision: u32,
     /// Current shortcut registration state (labels the menu item).
     shortcut_state: Arc<Mutex<ShortcutState>>,
 }
@@ -161,9 +172,7 @@ fn send_shortcut_notification(state: &ShortcutState) -> Result<(), zbus::Error> 
     let (summary, body) = match state {
         ShortcutState::Unavailable(reason) => (
             "Mousetrap shortcut unavailable",
-            format!(
-                "This compositor does not provide global shortcuts.\n\n{reason}"
-            ),
+            format!("This compositor does not provide global shortcuts.\n\n{reason}"),
         ),
         ShortcutState::Registering => (
             "Mousetrap shortcut",
@@ -171,13 +180,13 @@ fn send_shortcut_notification(state: &ShortcutState) -> Result<(), zbus::Error> 
         ),
         ShortcutState::Registered { trigger, .. } if !trigger.is_empty() => (
             "Mousetrap shortcut",
-            format!("Current toggle shortcut: {trigger}\n\nChange it in your system shortcut settings."),
+            format!(
+                "Current toggle shortcut: {trigger}\n\nChange it in your system shortcut settings."
+            ),
         ),
         ShortcutState::Registered { appid, .. } => (
             "Set Mousetrap toggle shortcut",
-            format!(
-                "Bind your preferred keys to this Hyprland action:\n{appid}:toggle"
-            ),
+            format!("Bind your preferred keys to this Hyprland action:\n{appid}:toggle"),
         ),
     };
 
@@ -218,20 +227,18 @@ impl Menu {
             .lock()
             .map(|state| shortcut_label(&state))
             .unwrap_or_else(|_| "Toggle shortcut".to_string());
+        let children = vec![
+            item(1, "Show grid", false),
+            item(2, "Cancel grid / free mouse", false),
+            item(7, "Open Settings", false),
+            item(5, &label, false),
+            item(4, "", true),
+            item(3, "Quit", false),
+        ];
         let mut root_props = HashMap::new();
         insert_prop(&mut root_props, "children-display", "submenu");
-        let root: Layout = (
-            0,
-            root_props,
-            vec![
-                item(1, "Show grid", false),
-                item(2, "Cancel grid", false),
-                item(5, &label, false),
-                item(4, "", true),
-                item(3, "Quit", false),
-            ],
-        );
-        (self.revision, root)
+        let root: Layout = (0, root_props, children);
+        (1, root)
     }
 
     fn get_group_properties(
@@ -250,6 +257,7 @@ impl Menu {
             1 => TrayEvent::Activate,
             2 => TrayEvent::Cancel,
             3 => TrayEvent::Quit,
+            7 => TrayEvent::OpenSettings,
             5 => TrayEvent::ShortcutHelp,
             _ => return,
         };
@@ -279,17 +287,37 @@ pub fn spawn(tx: Sender<TrayEvent>, shortcut_state: Arc<Mutex<ShortcutState>>) {
     });
 }
 
-fn run(tx: Sender<TrayEvent>, shortcut_state: Arc<Mutex<ShortcutState>>) -> Result<(), zbus::Error> {
+/// Open the generic GTK settings application outside the daemon's Wayland
+/// event loop. GTK's application ID makes repeated launches present the
+/// existing settings window instead of creating duplicates.
+pub fn launch_settings() {
+    std::thread::spawn(|| {
+        let executable =
+            std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("mousetrap"));
+        match std::process::Command::new(executable)
+            .arg("settings")
+            .status()
+        {
+            Ok(status) if status.success() => {}
+            Ok(status) => eprintln!("mousetrap: settings launcher failed ({status})"),
+            Err(e) => eprintln!("mousetrap: cannot open settings panel: {e}"),
+        }
+    });
+}
+
+fn run(
+    tx: Sender<TrayEvent>,
+    shortcut_state: Arc<Mutex<ShortcutState>>,
+) -> Result<(), zbus::Error> {
     let conn = Connection::session()?;
     let service_name = format!("org.kde.StatusNotifierItem-{}-1", std::process::id());
     conn.request_name(service_name.as_str())?;
 
-    let sni = Sni { pixmap: icon_pixmap() };
-    let menu = Menu {
-        tx,
-        revision: 1,
-        shortcut_state,
+    let sni = Sni {
+        pixmap: icon_pixmap(),
+        tx: tx.clone(),
     };
+    let menu = Menu { tx, shortcut_state };
     conn.object_server().at("/StatusNotifierItem", sni)?;
     conn.object_server().at("/MenuBar", menu)?;
 

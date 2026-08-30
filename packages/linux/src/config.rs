@@ -20,6 +20,9 @@ pub struct Settings {
     pub click_backend: String,
     /// Number of refinement steps before a selection clicks.
     pub refinement_steps: u32,
+    /// Free-mouse movement distance in logical pixels. The UI exposes 1..20;
+    /// movement itself clamps this to the safe 4..80 range.
+    pub free_mouse_step: f64,
     /// Session inactivity timeout; the grid resets after this.
     pub session_timeout_seconds: f64,
     /// (Reserved) chord commit timeout.
@@ -40,7 +43,8 @@ impl Default for Settings {
             double_click_interval_seconds: 0.10,
             click_backend: "uinput".to_string(),
             refinement_steps: 3,
-            session_timeout_seconds: 8.0,
+            free_mouse_step: 20.0,
+            session_timeout_seconds: 10.0,
             // Match the macOS chord grace period: long enough for a natural
             // key roll, short enough that single-key selection feels instant.
             chord_timeout_seconds: 0.08,

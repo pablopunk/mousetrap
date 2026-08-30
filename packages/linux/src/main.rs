@@ -3,28 +3,33 @@
 //! Commands:
 //!   mousetrap activate            Start/reset the grid session
 //!   mousetrap cancel              End the grid session
-//!   mousetrap key-down <key>      Grid key pressed (from compositor binds)
+//!   mousetrap key-down <key>      Grid/free-mouse key pressed
 //!   mousetrap key-up <key>        Grid key released
 //!   mousetrap doctor              Check runtime environment
 //!   mousetrap init-config         Write default config
 //!   mousetrap print-config        Print current config as JSON
+//!   mousetrap settings            Open the settings window
+//!   mousetrap settings set <key> <value>
 //!   mousetrap daemon              Run the resident daemon (internal)
 
 mod config;
+mod cursor;
 mod daemon;
 mod doctor;
 mod geometry;
 mod input;
 mod ipc;
 mod keys;
+mod mouse;
 mod overlay;
+mod settings_ui;
 mod shortcuts;
 mod state;
 mod tray;
 
 fn usage() -> ! {
     eprintln!(
-        "usage: mousetrap <activate|cancel|key-down <key>|key-up <key>|doctor|init-config|print-config>"
+        "usage: mousetrap <activate|cancel|key-down <key>|key-up <key>|doctor|init-config|print-config|settings [set <key> <value>]>"
     );
     std::process::exit(2);
 }
@@ -59,7 +64,19 @@ fn main() {
                 serde_json::to_string_pretty(&config::Settings::load()).unwrap()
             );
             0
-        },
+        }
+        Some("settings") => {
+            if args.len() == 1 {
+                settings_ui::run()
+            } else {
+                if args.get(1).map(String::as_str) != Some("set") {
+                    usage();
+                }
+                let key = args.get(2).cloned().unwrap_or_default();
+                let value = args.get(3).cloned().unwrap_or_default();
+                daemon::client_set_setting(&key, &value)
+            }
+        }
         Some("daemon") => daemon::run(),
         _ => usage(),
     };

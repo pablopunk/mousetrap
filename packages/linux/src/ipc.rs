@@ -25,6 +25,7 @@ pub enum Request {
     Cancel,
     KeyDown { key: String },
     KeyUp { key: String },
+    SetSetting { key: String, value: String },
     Ping,
 }
 
@@ -39,10 +40,18 @@ pub struct Response {
 
 impl Response {
     pub fn ok(message: impl Into<String>) -> Self {
-        Self { ok: true, exit_code: 0, message: message.into() }
+        Self {
+            ok: true,
+            exit_code: 0,
+            message: message.into(),
+        }
     }
     pub fn err(message: impl Into<String>) -> Self {
-        Self { ok: false, exit_code: 1, message: message.into() }
+        Self {
+            ok: false,
+            exit_code: 1,
+            message: message.into(),
+        }
     }
     pub fn with_code(mut self, code: i32) -> Self {
         self.exit_code = code;

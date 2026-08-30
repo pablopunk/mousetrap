@@ -4,9 +4,9 @@ Keyboard-driven mouse targeting for Wayland compositors, written in Rust.
 
 A resident daemon draws a fullscreen grid on the focused monitor; you refine
 it with keyboard keys and the final step moves the cursor and clicks. The
-binary is self-contained (static musl build, embedded font and icon) and
-works on any compositor with `wlr-layer-shell` — Hyprland, sway, river, and
-most others.
+daemon uses an embedded font and icon and works on any compositor with
+`wlr-layer-shell` — Hyprland, sway, river, and most others. Its settings
+window uses GTK 4 and libadwaita, with no compositor or desktop-shell coupling.
 
 ## Architecture
 
@@ -17,6 +17,7 @@ most others.
 | Cursor movement & clicks | Virtual pointer via `/dev/uinput` (kernel input device) |
 | Tray presence | StatusNotifierItem + DBusMenu over DBus (Quickshell, any SNI host) |
 | Keyboard input | evdev + `EVIOCGRAB` while the grid is active — no compositor keybinds |
+| Settings window | GTK 4 + libadwaita, opened from the SNI tray item |
 
 ## Installing (standard Linux app install)
 
@@ -33,6 +34,9 @@ install -Dm644 packaging/app-mousetrap.service ~/.config/systemd/user/app-mouset
 systemctl --user daemon-reload
 systemctl --user enable --now app-mousetrap
 ```
+
+`make install-linux` performs all of the steps above. Building and running the
+settings window requires GTK 4.6 and libadwaita 1.4 or newer.
 
 (For a system-wide install, use `/usr/local/bin` and `/usr/local/share/...`
 with the same files.)
@@ -57,15 +61,27 @@ mousetrap daemon                # start the resident daemon
 mousetrap activate              # show the grid
 mousetrap key-down a            # grid key press
 mousetrap key-up a              # grid key release (commits on release)
+mousetrap key-down right        # enter/move free-mouse mode
+mousetrap key-down shift+enter  # right-click in free-mouse mode
 mousetrap cancel                # dismiss the grid
 mousetrap doctor                # check the runtime environment
 mousetrap init-config           # write ~/.config/mousetrap/config.json
+mousetrap settings              # open the settings window
 ```
 
 Three refinements select the final target; adjacent keys pressed together
 (e.g. `zx`, `aszx`) target midpoints and corners. When the final selection
 commits, the overlay disappears, the cursor warps to the target, and a left
 click is sent.
+
+At any point, an arrow key switches to free-mouse mode. Plain arrows move the
+cursor by the configured travel step; `Enter` or `Space` clicks, a second
+press within 250 ms double-clicks, `Shift+Enter` right-clicks, and
+`Shift+Arrow` drags with the left button. `Escape`, a physical mouse move, or
+the global timeout safely ends the mode. Left-clicking the tray icon, or using
+its **Open Settings** menu item, opens the settings window with live controls
+for travel step, timeout, double-click speed, launch at login, and keyboard
+help.
 
 ### /dev/uinput permission
 
@@ -94,8 +110,8 @@ input-capture work below for the bind-free flow.
 - [x] Keyboard capture via evdev + EVIOCGRAB (no compositor binds needed)
 - [x] Daemon + UNIX-socket IPC (CLI latency ~1ms)
 - [x] Safety nets: watchdog thread, grab self-release, graceful tray Quit
-- [ ] Right-click / double-click / drag, free-mouse mode
-- [ ] Settings UI parity with macOS
+- [x] Free-mouse movement, single/double/right click, left drag, and safety reset
+- [x] Generic GTK settings window for free-mouse travel, timeout, click speed, launch at login, and About
 
 ## Development
 

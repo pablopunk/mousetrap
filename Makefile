@@ -42,7 +42,12 @@ doctor-linux:
 	cargo run --manifest-path packages/linux/Cargo.toml -- doctor
 
 install-linux: build-linux
-	install -m755 packages/linux/target/release/mousetrap "$$HOME/.local/bin/mousetrap"
+	install -Dm755 packages/linux/target/release/mousetrap "$$HOME/.local/bin/mousetrap"
+	install -Dm644 packages/linux/assets/AppIcon.png "$$HOME/.local/share/icons/mousetrap.png"
+	install -Dm644 packages/linux/packaging/mousetrap.desktop "$$HOME/.local/share/applications/mousetrap.desktop"
+	install -Dm644 packages/linux/packaging/app-mousetrap.service "$$HOME/.config/systemd/user/app-mousetrap.service"
+	systemctl --user daemon-reload
+	systemctl --user enable --now app-mousetrap.service
 
 ifeq ($(OS),Darwin)
 build: build-mac

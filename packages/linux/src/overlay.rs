@@ -6,18 +6,19 @@
 //! cannot.
 
 use std::sync::OnceLock;
+use std::time::Instant;
 
 use fontdue::Font;
-use smithay_client_toolkit as sctk;
 use sctk::{
     compositor::Surface,
     shell::wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerSurface},
-    shm::slot::{Buffer, SlotPool},
     shm::Shm,
+    shm::slot::{Buffer, SlotPool},
 };
+use smithay_client_toolkit as sctk;
 use wayland_client::{
-    protocol::{wl_shm, wl_surface::WlSurface},
     QueueHandle,
+    protocol::{wl_shm, wl_surface::WlSurface},
 };
 
 use crate::geometry::{Bounds, ROWS};
@@ -31,8 +32,7 @@ static FONT: OnceLock<Font> = OnceLock::new();
 fn font() -> &'static Font {
     FONT.get_or_init(|| {
         let bytes: &[u8] = include_bytes!("../assets/DejaVuSansMono.ttf");
-        Font::from_bytes(bytes, fontdue::FontSettings::default())
-            .expect("embedded font parses")
+        Font::from_bytes(bytes, fontdue::FontSettings::default()).expect("embedded font parses")
     })
 }
 
@@ -55,6 +55,13 @@ pub struct Overlay {
     pub bounds: Bounds,
     /// Current session state (drives drawing).
     pub state: Option<SessionState>,
+    /// Free-mouse indicator position in logical surface coordinates.
+    indicator: Option<Indicator>,
+}
+
+struct Indicator {
+    point: (i32, i32),
+    started_at: Instant,
 }
 
 impl Overlay {
@@ -71,6 +78,7 @@ impl Overlay {
             needs_redraw: false,
             bounds: (0, 0, 0, 0),
             state: None,
+            indicator: None,
         }
     }
 
@@ -111,10 +119,10 @@ impl Overlay {
 
     /// Map the surface: anchor it to all edges of the focused output.
     pub fn show(&mut self) {
-        let Some(layer) = &self.layer_surface else { return };
-        layer.set_anchor(
-            Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-        );
+        let Some(layer) = &self.layer_surface else {
+            return;
+        };
+        layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
         layer.set_exclusive_zone(-1);
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
         self.shown = true;
@@ -126,6 +134,7 @@ impl Overlay {
     pub fn hide(&mut self) {
         self.shown = false;
         self.state = None;
+        self.indicator = None;
         self.needs_redraw = false;
         self.layer_surface = None;
         self.surface = None;
@@ -158,6 +167,28 @@ impl Overlay {
         self.needs_redraw = true;
     }
 
+    /// Replace the grid with a small, animated indicator without changing
+    /// the non-activating layer surface.
+    pub fn show_indicator(&mut self, point: (i32, i32)) {
+        self.state = None;
+        self.indicator = Some(Indicator {
+            point,
+            started_at: Instant::now(),
+        });
+        self.needs_redraw = true;
+    }
+
+    pub fn update_indicator(&mut self, point: (i32, i32)) {
+        if let Some(indicator) = &mut self.indicator {
+            indicator.point = point;
+            self.needs_redraw = true;
+        }
+    }
+
+    pub fn has_indicator(&self) -> bool {
+        self.indicator.is_some()
+    }
+
     /// Redraw the grid into a fresh shm buffer and commit it.
     pub fn redraw(&mut self, shm: &Shm) {
         if !self.shown || !self.configured || self.size == (0, 0) {
@@ -176,13 +207,14 @@ impl Overlay {
         let pool = self.pool.get_or_insert_with(|| {
             SlotPool::new((stride as usize) * ph as usize, shm).expect("shm pool")
         });
-        let (buffer, canvas) = match pool.create_buffer(pw as i32, ph as i32, stride, wl_shm::Format::Argb8888) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("mousetrap: buffer creation failed: {e:?}");
-                return;
-            }
-        };
+        let (buffer, canvas) =
+            match pool.create_buffer(pw as i32, ph as i32, stride, wl_shm::Format::Argb8888) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("mousetrap: buffer creation failed: {e:?}");
+                    return;
+                }
+            };
         self.buffer = Some(buffer);
 
         // SlotPool memory is reused and is not guaranteed to be initialized.
@@ -190,7 +222,14 @@ impl Overlay {
         // expose contents from a previous frame or another shm allocation.
         canvas.fill(0);
 
-        draw_grid(canvas, pw as usize, ph as usize, scale, self.state.as_ref());
+        draw_grid(
+            canvas,
+            pw as usize,
+            ph as usize,
+            scale,
+            self.state.as_ref(),
+            self.indicator.as_ref(),
+        );
 
         if let Some(surface) = &self.surface {
             if let Some(buffer) = &self.buffer {
@@ -228,7 +267,19 @@ fn blend_pixel(dst: &mut [u8], r: u8, g: u8, b: u8, a: f32) {
 }
 
 /// Fill an axis-aligned rectangle (float coords), clipped to the canvas.
-fn fill_rect(canvas: &mut [u8], width: usize, height: usize, x: f32, y: f32, w: f32, h: f32, r: u8, g: u8, b: u8, a: f32) {
+fn fill_rect(
+    canvas: &mut [u8],
+    width: usize,
+    height: usize,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    r: u8,
+    g: u8,
+    b: u8,
+    a: f32,
+) {
     if a <= 0.0 {
         return;
     }
@@ -245,22 +296,85 @@ fn fill_rect(canvas: &mut [u8], width: usize, height: usize, x: f32, y: f32, w: 
 }
 
 /// Stroke a rectangle by filling its four edges.
-fn stroke_rect(canvas: &mut [u8], width: usize, height: usize, x: f32, y: f32, w: f32, h: f32, thickness: f32, r: u8, g: u8, b: u8, a: f32) {
+fn stroke_rect(
+    canvas: &mut [u8],
+    width: usize,
+    height: usize,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    thickness: f32,
+    r: u8,
+    g: u8,
+    b: u8,
+    a: f32,
+) {
     if thickness <= 0.0 || w <= 0.0 || h <= 0.0 {
         return;
     }
     fill_rect(canvas, width, height, x, y, w, thickness.min(h), r, g, b, a); // top
-    fill_rect(canvas, width, height, x, y + h - thickness, w, thickness.min(h), r, g, b, a); // bottom
+    fill_rect(
+        canvas,
+        width,
+        height,
+        x,
+        y + h - thickness,
+        w,
+        thickness.min(h),
+        r,
+        g,
+        b,
+        a,
+    ); // bottom
     fill_rect(canvas, width, height, x, y, thickness.min(w), h, r, g, b, a); // left
-    fill_rect(canvas, width, height, x + w - thickness, y, thickness.min(w), h, r, g, b, a); // right
+    fill_rect(
+        canvas,
+        width,
+        height,
+        x + w - thickness,
+        y,
+        thickness.min(w),
+        h,
+        r,
+        g,
+        b,
+        a,
+    ); // right
 }
 
-fn draw_grid(canvas: &mut [u8], width: usize, height: usize, scale: u32, state: Option<&SessionState>) {
+fn draw_grid(
+    canvas: &mut [u8],
+    width: usize,
+    height: usize,
+    scale: u32,
+    state: Option<&SessionState>,
+    indicator: Option<&Indicator>,
+) {
     let s = scale as f32;
     let (w, h) = (width as f32, height as f32);
 
+    if state.is_none() {
+        if let Some(indicator) = indicator {
+            draw_indicator(canvas, width, height, s, indicator);
+        }
+        return;
+    }
+
     // Dim the whole output.
-    fill_rect(canvas, width, height, 0.0, 0.0, w, h, 0, 0, 0, OVERLAY_ALPHA);
+    fill_rect(
+        canvas,
+        width,
+        height,
+        0.0,
+        0.0,
+        w,
+        h,
+        0,
+        0,
+        0,
+        OVERLAY_ALPHA,
+    );
 
     let Some(state) = state else { return };
     let (bx, by, bw, bh) = state.current_bounds;
@@ -271,8 +385,33 @@ fn draw_grid(canvas: &mut [u8], width: usize, height: usize, scale: u32, state: 
     let bh = ((bh as f32).clamp(1.0, h as f32) * s).max(1.0);
 
     // Current region: subtle white fill + border.
-    fill_rect(canvas, width, height, bx, by, bw, bh, 255, 255, 255, 20.0 / 255.0);
-    stroke_rect(canvas, width, height, bx, by, bw, bh, 2.0 * s, 255, 255, 255, 115.0 / 255.0);
+    fill_rect(
+        canvas,
+        width,
+        height,
+        bx,
+        by,
+        bw,
+        bh,
+        255,
+        255,
+        255,
+        20.0 / 255.0,
+    );
+    stroke_rect(
+        canvas,
+        width,
+        height,
+        bx,
+        by,
+        bw,
+        bh,
+        2.0 * s,
+        255,
+        255,
+        255,
+        115.0 / 255.0,
+    );
 
     // Cells with key labels.
     let row_h = bh / ROWS.len() as f32;
@@ -286,13 +425,136 @@ fn draw_grid(canvas: &mut [u8], width: usize, height: usize, scale: u32, state: 
             if cw <= 0.0 || chh <= 0.0 {
                 continue;
             }
-            fill_rect(canvas, width, height, x, y, cw, chh, 255, 255, 255, 31.0 / 255.0);
-            stroke_rect(canvas, width, height, x, y, cw, chh, 1.0 * s, 255, 255, 255, 71.0 / 255.0);
+            fill_rect(
+                canvas,
+                width,
+                height,
+                x,
+                y,
+                cw,
+                chh,
+                255,
+                255,
+                255,
+                31.0 / 255.0,
+            );
+            stroke_rect(
+                canvas,
+                width,
+                height,
+                x,
+                y,
+                cw,
+                chh,
+                1.0 * s,
+                255,
+                255,
+                255,
+                71.0 / 255.0,
+            );
             let font_size = (10.0 * s).max(cw.min(chh) * 0.33);
             let label = ch.to_uppercase().to_string();
-            draw_text(canvas, width, height, &label, font_size, x, y, cw, chh, 255, 255, 255, 242.0 / 255.0);
+            draw_text(
+                canvas,
+                width,
+                height,
+                &label,
+                font_size,
+                x,
+                y,
+                cw,
+                chh,
+                255,
+                255,
+                255,
+                242.0 / 255.0,
+            );
         }
     }
+}
+
+fn draw_indicator(
+    canvas: &mut [u8],
+    width: usize,
+    height: usize,
+    scale: f32,
+    indicator: &Indicator,
+) {
+    let elapsed = indicator.started_at.elapsed().as_secs_f32();
+    let pulse = 0.72 + 0.28 * ((elapsed * std::f32::consts::TAU / 1.1).sin() * 0.5 + 0.5);
+    let x = indicator.point.0 as f32 * scale;
+    let y = indicator.point.1 as f32 * scale;
+    let cx = x + 22.0 * scale;
+    let cy = y - 1.0 * scale;
+    let unit = scale.max(1.0);
+    let arm = 4.0 * unit;
+    let core = 2.0 * unit;
+
+    fill_rect(
+        canvas,
+        width,
+        height,
+        cx - core,
+        cy - core,
+        core * 2.0,
+        core * 2.0,
+        255,
+        214,
+        64,
+        pulse,
+    );
+    fill_rect(
+        canvas,
+        width,
+        height,
+        cx - unit,
+        cy - arm,
+        unit * 2.0,
+        arm - unit,
+        255,
+        214,
+        64,
+        pulse,
+    );
+    fill_rect(
+        canvas,
+        width,
+        height,
+        cx - unit,
+        cy + unit,
+        unit * 2.0,
+        arm - unit,
+        255,
+        214,
+        64,
+        pulse,
+    );
+    fill_rect(
+        canvas,
+        width,
+        height,
+        cx - arm,
+        cy - unit,
+        arm - unit,
+        unit * 2.0,
+        255,
+        214,
+        64,
+        pulse,
+    );
+    fill_rect(
+        canvas,
+        width,
+        height,
+        cx + unit,
+        cy - unit,
+        arm - unit,
+        unit * 2.0,
+        255,
+        214,
+        64,
+        pulse,
+    );
 }
 
 /// Rasterize `text` at position `cursor`/`baseline` (no centering).
@@ -363,5 +625,7 @@ fn draw_text(
     }
     let cursor = x + ((w - total_width) / 2.0).max(0.0);
     let baseline = y + h * 0.78;
-    blit_text(canvas, width, height, text, size, cursor, baseline, r, g, b, a);
+    blit_text(
+        canvas, width, height, text, size, cursor, baseline, r, g, b, a,
+    );
 }

@@ -13,8 +13,8 @@ use std::fs::File;
 use std::io;
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::fs::OpenOptionsExt;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use calloop::channel::Sender;
@@ -28,6 +28,7 @@ const EVIOCGBIT_BASE: u64 = IOC_READ | (0x45 << 8) | 0x20;
 // linux/input-event-codes.h
 const EV_KEY: u16 = 0x01;
 const KEY_ESC: u16 = 1;
+const KEY_BACKSPACE: u16 = 14;
 const KEY_1: u16 = 2;
 const KEY_0: u16 = 11;
 const KEY_Q: u16 = 16;
@@ -41,7 +42,21 @@ const KEY_COMMA: u16 = 51;
 const KEY_DOT: u16 = 52;
 const KEY_SLASH: u16 = 53;
 const KEY_ENTER: u16 = 28;
+const KEY_KPENTER: u16 = 96;
+const KEY_LEFTSHIFT: u16 = 42;
 const KEY_SPACE: u16 = 57;
+const KEY_RIGHTSHIFT: u16 = 54;
+const KEY_LEFTCTRL: u16 = 29;
+const KEY_RIGHTCTRL: u16 = 97;
+const KEY_LEFTALT: u16 = 56;
+const KEY_RIGHTALT: u16 = 100;
+const KEY_LEFTMETA: u16 = 125;
+const KEY_RIGHTMETA: u16 = 126;
+const KEY_LEFT: u16 = 105;
+const KEY_RIGHT: u16 = 106;
+const KEY_UP: u16 = 103;
+const KEY_DOWN: u16 = 108;
+const KEY_DELETE: u16 = 111;
 const BTN_LEFT: u16 = 0x110;
 
 const EVENT_SIZE: usize = 24; // struct input_event on 64-bit
@@ -53,6 +68,27 @@ pub enum KeyEvent {
     KeyUp(String),
     /// Escape pressed while the grid is active (cancels the session).
     Escape,
+    /// Arrow pressed, with the shift state captured at the physical event.
+    Arrow {
+        direction: ArrowDirection,
+        shift: bool,
+    },
+    /// Enter pressed, with the shift state captured at the physical event.
+    Enter {
+        shift: bool,
+    },
+    /// Space pressed.
+    Space,
+    /// Backspace/Delete pressed.
+    Delete,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ArrowDirection {
+    Up,
+    Down,
+    Left,
+    Right,
 }
 
 /// Map an evdev keycode to a grid key. `None` = not a grid key (still
@@ -115,12 +151,18 @@ fn ioctl(fd: RawFd, request: u64, arg: *mut libc::c_void) -> io::Result<()> {
 }
 
 fn has_bit(bits: &[u8], bit: usize) -> bool {
-    bits.get(bit / 8).map(|b| b & (1 << (bit % 8)) != 0).unwrap_or(false)
+    bits.get(bit / 8)
+        .map(|b| b & (1 << (bit % 8)) != 0)
+        .unwrap_or(false)
 }
 
 fn device_capabilities(fd: RawFd) -> io::Result<(String, Vec<u8>, Vec<u8>)> {
     let mut name = [0u8; 256];
-    ioctl(fd, EVIOCGNAME_BASE | ((name.len() as u64) << 16), name.as_mut_ptr().cast())?;
+    ioctl(
+        fd,
+        EVIOCGNAME_BASE | ((name.len() as u64) << 16),
+        name.as_mut_ptr().cast(),
+    )?;
     let name = String::from_utf8_lossy(&name)
         .trim_end_matches('\0')
         .trim()
@@ -147,8 +189,7 @@ fn is_keyboard(ev_bits: &[u8], key_bits: &[u8]) -> bool {
     }
     let letters = (KEY_A..=KEY_Z).all(|k| has_bit(key_bits, k as usize));
     let digits = (KEY_1..=KEY_0).all(|k| has_bit(key_bits, k as usize));
-    let structural =
-        has_bit(key_bits, KEY_ENTER as usize) && has_bit(key_bits, KEY_SPACE as usize);
+    let structural = has_bit(key_bits, KEY_ENTER as usize) && has_bit(key_bits, KEY_SPACE as usize);
     // Mice and trackballs also report letters/digits through their receiver;
     // exclude anything with mouse buttons so we never swallow clicks.
     let mouse_like = has_bit(key_bits, BTN_LEFT as usize);
@@ -209,6 +250,8 @@ fn reader_loop(
         .collect();
     let mut buf = [0u8; EVENT_SIZE];
     let grace = Duration::from_secs(2);
+    let mut shift_count = 0u8;
+    let mut non_shift_modifier_count = 0u8;
     // Failsafe independent of the main loop: if the main loop stops
     // processing forwarded keys (wedge), release the grabs (via Drop) and
     // kill the daemon. The deadline tracks the main loop's own heartbeat,
@@ -223,7 +266,8 @@ fn reader_loop(
         } else {
             last
         };
-        last + Duration::from_secs_f64(timeout_seconds.max(1.0)).as_nanos() as u64 + grace.as_nanos() as u64
+        last + Duration::from_secs_f64(timeout_seconds.max(1.0)).as_nanos() as u64
+            + grace.as_nanos() as u64
     };
     while !stop.load(Ordering::Relaxed) {
         let now_ns = std::time::SystemTime::now()
@@ -261,15 +305,66 @@ fn reader_loop(
                 }
                 match event.value {
                     1 => {
-                        if event.code == KEY_ESC {
+                        if event.code == KEY_LEFTSHIFT || event.code == KEY_RIGHTSHIFT {
+                            shift_count = shift_count.saturating_add(1);
+                        } else if event.code == KEY_LEFTCTRL
+                            || event.code == KEY_RIGHTCTRL
+                            || event.code == KEY_LEFTALT
+                            || event.code == KEY_RIGHTALT
+                            || event.code == KEY_LEFTMETA
+                            || event.code == KEY_RIGHTMETA
+                        {
+                            non_shift_modifier_count = non_shift_modifier_count.saturating_add(1);
+                        } else if event.code == KEY_ESC {
                             let _ = tx.send(KeyEvent::Escape);
-                        } else if let Some(key) = keycode_to_grid(event.code) {
-                            let _ = tx.send(KeyEvent::KeyDown(key.to_string()));
+                        } else if non_shift_modifier_count == 0 {
+                            let shift = shift_count > 0;
+                            if event.code == KEY_UP {
+                                let _ = tx.send(KeyEvent::Arrow {
+                                    direction: ArrowDirection::Up,
+                                    shift,
+                                });
+                            } else if event.code == KEY_DOWN {
+                                let _ = tx.send(KeyEvent::Arrow {
+                                    direction: ArrowDirection::Down,
+                                    shift,
+                                });
+                            } else if event.code == KEY_LEFT {
+                                let _ = tx.send(KeyEvent::Arrow {
+                                    direction: ArrowDirection::Left,
+                                    shift,
+                                });
+                            } else if event.code == KEY_RIGHT {
+                                let _ = tx.send(KeyEvent::Arrow {
+                                    direction: ArrowDirection::Right,
+                                    shift,
+                                });
+                            } else if event.code == KEY_ENTER || event.code == KEY_KPENTER {
+                                let _ = tx.send(KeyEvent::Enter { shift });
+                            } else if event.code == KEY_SPACE {
+                                let _ = tx.send(KeyEvent::Space);
+                            } else if event.code == KEY_BACKSPACE || event.code == KEY_DELETE {
+                                let _ = tx.send(KeyEvent::Delete);
+                            } else if let Some(key) = keycode_to_grid(event.code) {
+                                let _ = tx.send(KeyEvent::KeyDown(key.to_string()));
+                            }
                         }
                     }
                     0 => {
-                        if let Some(key) = keycode_to_grid(event.code) {
-                            let _ = tx.send(KeyEvent::KeyUp(key.to_string()));
+                        if event.code == KEY_LEFTSHIFT || event.code == KEY_RIGHTSHIFT {
+                            shift_count = shift_count.saturating_sub(1);
+                        } else if event.code == KEY_LEFTCTRL
+                            || event.code == KEY_RIGHTCTRL
+                            || event.code == KEY_LEFTALT
+                            || event.code == KEY_RIGHTALT
+                            || event.code == KEY_LEFTMETA
+                            || event.code == KEY_RIGHTMETA
+                        {
+                            non_shift_modifier_count = non_shift_modifier_count.saturating_sub(1);
+                        } else if non_shift_modifier_count == 0 {
+                            if let Some(key) = keycode_to_grid(event.code) {
+                                let _ = tx.send(KeyEvent::KeyUp(key.to_string()));
+                            }
                         }
                     }
                     _ => {} // repeats (2) and others are ignored

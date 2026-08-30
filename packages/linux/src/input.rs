@@ -16,6 +16,7 @@ use std::os::unix::fs::OpenOptionsExt;
 // linux/uinput.h
 const UI_SET_EVBIT: u64 = 0x4004_5564; // _IOW('U', 100, int)
 const UI_SET_KEYBIT: u64 = 0x4004_5565; // _IOW('U', 101, int)
+const UI_SET_RELBIT: u64 = 0x4004_5566; // _IOW('U', 102, int)
 const UI_SET_ABSBIT: u64 = 0x4004_5567; // _IOW('U', 103, int)
 const UI_DEV_CREATE: u64 = 0x5501; // _IO('U', 1)
 const UI_DEV_DESTROY: u64 = 0x5502; // _IO('U', 2)
@@ -23,11 +24,14 @@ const UI_DEV_DESTROY: u64 = 0x5502; // _IO('U', 2)
 // linux/input-event-codes.h
 const EV_SYN: u16 = 0x00;
 const EV_KEY: u16 = 0x01;
+const EV_REL: u16 = 0x02;
 const EV_ABS: u16 = 0x03;
 const SYN_REPORT: u16 = 0x00;
-const BTN_LEFT: u16 = 0x110;
+pub const BTN_LEFT: u16 = 0x110;
 const BTN_RIGHT: u16 = 0x111;
 const BTN_MIDDLE: u16 = 0x112;
+const REL_X: u16 = 0x00;
+const REL_Y: u16 = 0x01;
 const ABS_X: usize = 0x00;
 const ABS_Y: usize = 0x01;
 const ABS_CNT: usize = 0x40;
@@ -35,6 +39,8 @@ const ABS_CNT: usize = 0x40;
 const UINPUT_MAX_NAME_SIZE: usize = 80;
 const BUS_USB: u16 = 0x03;
 const ABS_MAX: i32 = 32767;
+
+pub const VIRTUAL_POINTER_NAME: &str = "mousetrap virtual pointer";
 
 #[repr(C)]
 struct InputId {
@@ -75,6 +81,7 @@ unsafe fn ioctl_u32(fd: std::os::fd::RawFd, request: u64, value: u32) -> io::Res
 
 pub struct VirtualPointer {
     file: File,
+    left_button_down: bool,
 }
 
 impl VirtualPointer {
@@ -111,13 +118,14 @@ impl VirtualPointer {
             absfuzz: [0; ABS_CNT],
             absflat: [0; ABS_CNT],
         };
-        let name = b"mousetrap virtual pointer";
+        let name = VIRTUAL_POINTER_NAME.as_bytes();
         dev.name[..name.len()].copy_from_slice(name);
         dev.absmax[ABS_X] = ABS_MAX;
         dev.absmax[ABS_Y] = ABS_MAX;
 
         unsafe {
             ioctl_u32(fd, UI_SET_EVBIT, EV_KEY as u32)?;
+            ioctl_u32(fd, UI_SET_EVBIT, EV_REL as u32)?;
             ioctl_u32(fd, UI_SET_EVBIT, EV_ABS as u32)?;
             ioctl_u32(fd, UI_SET_EVBIT, EV_SYN as u32)?;
             ioctl_u32(fd, UI_SET_KEYBIT, BTN_LEFT as u32)?;
@@ -125,9 +133,14 @@ impl VirtualPointer {
             ioctl_u32(fd, UI_SET_KEYBIT, BTN_MIDDLE as u32)?;
             ioctl_u32(fd, UI_SET_ABSBIT, ABS_X as u32)?;
             ioctl_u32(fd, UI_SET_ABSBIT, ABS_Y as u32)?;
+            ioctl_u32(fd, UI_SET_RELBIT, REL_X as u32)?;
+            ioctl_u32(fd, UI_SET_RELBIT, REL_Y as u32)?;
         }
 
-        let mut pointer = Self { file };
+        let mut pointer = Self {
+            file,
+            left_button_down: false,
+        };
         // The device description must be written BEFORE UI_DEV_CREATE.
         pointer.write_dev(&dev)?;
         unsafe {
@@ -148,7 +161,10 @@ impl VirtualPointer {
 
     fn write_event(&mut self, type_: u16, code: u16, value: i32) -> io::Result<()> {
         let ev = InputEvent {
-            time: libc::timeval { tv_sec: 0, tv_usec: 0 },
+            time: libc::timeval {
+                tv_sec: 0,
+                tv_usec: 0,
+            },
             type_,
             code,
             value,
@@ -179,6 +195,21 @@ impl VirtualPointer {
         self.write_event(EV_SYN, SYN_REPORT, 0)
     }
 
+    /// Move the pointer by a relative amount. This is the fallback for
+    /// compositors where the current cursor position cannot be queried.
+    pub fn move_relative(&mut self, dx: i32, dy: i32) -> io::Result<()> {
+        if dx == 0 && dy == 0 {
+            return Ok(());
+        }
+        if dx != 0 {
+            self.write_event(EV_REL, REL_X, dx)?;
+        }
+        if dy != 0 {
+            self.write_event(EV_REL, REL_Y, dy)?;
+        }
+        self.write_event(EV_SYN, SYN_REPORT, 0)
+    }
+
     pub fn click(&mut self, button: u16) -> io::Result<()> {
         self.emit(EV_KEY, button, 1)?;
         self.emit(EV_KEY, button, 0)
@@ -199,16 +230,28 @@ impl VirtualPointer {
     }
 
     pub fn drag_start(&mut self, button: u16) -> io::Result<()> {
-        self.emit(EV_KEY, button, 1)
+        self.emit(EV_KEY, button, 1)?;
+        if button == BTN_LEFT {
+            self.left_button_down = true;
+        }
+        Ok(())
     }
 
     pub fn drag_end(&mut self, button: u16) -> io::Result<()> {
-        self.emit(EV_KEY, button, 0)
+        self.emit(EV_KEY, button, 0)?;
+        if button == BTN_LEFT {
+            self.left_button_down = false;
+        }
+        Ok(())
     }
 }
 
 impl Drop for VirtualPointer {
     fn drop(&mut self) {
+        if self.left_button_down {
+            let _ = self.emit(EV_KEY, BTN_LEFT, 0);
+            self.left_button_down = false;
+        }
         unsafe {
             let _ = libc::ioctl(self.file.as_raw_fd(), UI_DEV_DESTROY as libc::c_ulong, 0);
         }
@@ -222,6 +265,10 @@ mod tests {
     #[test]
     fn uinput_device_creates() {
         let pointer = VirtualPointer::new();
-        assert!(pointer.is_ok(), "VirtualPointer::new failed: {:?}", pointer.err());
+        assert!(
+            pointer.is_ok(),
+            "VirtualPointer::new failed: {:?}",
+            pointer.err()
+        );
     }
 }

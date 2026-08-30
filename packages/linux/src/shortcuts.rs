@@ -22,10 +22,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use calloop::channel::Sender;
+use zbus::MatchRule;
 use zbus::blocking::{Connection, MessageIterator, Proxy};
 use zbus::message::Type;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
-use zbus::MatchRule;
 
 pub const SHORTCUT_ID: &str = "toggle";
 pub const SHORTCUT_DESCRIPTION: &str = "Toggle the Mousetrap grid";
@@ -77,7 +77,9 @@ fn hyprland_appid() -> String {
         return "mousetrap".to_string();
     };
     list.iter()
-        .find(|entry| entry.get("description").and_then(|d| d.as_str()) == Some(SHORTCUT_DESCRIPTION))
+        .find(|entry| {
+            entry.get("description").and_then(|d| d.as_str()) == Some(SHORTCUT_DESCRIPTION)
+        })
         .and_then(|entry| entry.get("name").and_then(|n| n.as_str()))
         .and_then(|name| name.split(':').next())
         .map(str::to_string)
@@ -131,8 +133,14 @@ fn run(tx: Sender<ShortcutEvent>, state: &Arc<Mutex<ShortcutState>>) -> Result<(
     // 1. CreateSession.
     let pid = std::process::id();
     let mut session_opts: HashMap<String, OwnedValue> = HashMap::new();
-    session_opts.insert("handle_token".into(), ov(format!("mousetrap_session_{pid}")));
-    session_opts.insert("session_handle_token".into(), ov(format!("mousetrap_{pid}")));
+    session_opts.insert(
+        "handle_token".into(),
+        ov(format!("mousetrap_session_{pid}")),
+    );
+    session_opts.insert(
+        "session_handle_token".into(),
+        ov(format!("mousetrap_{pid}")),
+    );
     let session_req = portal
         .call::<_, _, OwnedObjectPath>("CreateSession", &(session_opts,))
         .map_err(|e| e.to_string())?;
@@ -156,8 +164,7 @@ fn run(tx: Sender<ShortcutEvent>, state: &Arc<Mutex<ShortcutState>>) -> Result<(
         .call::<_, _, OwnedObjectPath>(
             "BindShortcuts",
             &(
-                OwnedObjectPath::try_from(session_handle.as_str())
-                    .map_err(|e| e.to_string())?,
+                OwnedObjectPath::try_from(session_handle.as_str()).map_err(|e| e.to_string())?,
                 vec![(SHORTCUT_ID.to_string(), shortcut)],
                 String::new(), // no parent window
                 bind_opts,
@@ -172,8 +179,18 @@ fn run(tx: Sender<ShortcutEvent>, state: &Arc<Mutex<ShortcutState>>) -> Result<(
     // `trigger_description` if the compositor reports one.
     let trigger = trigger_from_response(&results);
 
-    let appid = if is_hyprland() { hyprland_appid() } else { "mousetrap".to_string() };
-    set_state(state, ShortcutState::Registered { appid: appid.clone(), trigger: trigger.clone() });
+    let appid = if is_hyprland() {
+        hyprland_appid()
+    } else {
+        "mousetrap".to_string()
+    };
+    set_state(
+        state,
+        ShortcutState::Registered {
+            appid: appid.clone(),
+            trigger: trigger.clone(),
+        },
+    );
 
     // Drop the response iterator so its match rule is deregistered.
     drop(responses);
@@ -189,11 +206,13 @@ fn run(tx: Sender<ShortcutEvent>, state: &Arc<Mutex<ShortcutState>>) -> Result<(
         "org.freedesktop.portal.GlobalShortcuts",
     )
     .map_err(|e| e.to_string())?;
-    let mut signals = session_proxy.receive_signal("Activated").map_err(|e| e.to_string())?;
+    let mut signals = session_proxy
+        .receive_signal("Activated")
+        .map_err(|e| e.to_string())?;
     for msg in &mut signals {
-        let Ok((_session, id, _ts, _opts)) = msg
-            .body()
-            .deserialize::<(OwnedObjectPath, String, u64, HashMap<String, OwnedValue>)>()
+        let Ok((_session, id, _ts, _opts)) =
+            msg.body()
+                .deserialize::<(OwnedObjectPath, String, u64, HashMap<String, OwnedValue>)>()
         else {
             continue;
         };

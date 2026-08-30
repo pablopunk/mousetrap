@@ -5,8 +5,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::geometry::{
-    cell_bounds, cell_center, classify_chord, combine_bounds, expanded_bounds, rect_center,
-    Bounds, CellTarget,
+    Bounds, CellTarget, cell_bounds, cell_center, classify_chord, combine_bounds, expanded_bounds,
+    rect_center,
 };
 
 pub const MAX_REFINEMENT_STEPS: u32 = 3;
@@ -184,11 +184,8 @@ impl OverlaySession {
         };
         self.state.history.push(keys.concat());
         let next_depth = self.state.step;
-        self.state.current_bounds = expanded_bounds(
-            selected_bounds,
-            self.state.initial_bounds,
-            next_depth,
-        );
+        self.state.current_bounds =
+            expanded_bounds(selected_bounds, self.state.initial_bounds, next_depth);
         self.state.step += 1;
         self.state.updated_at = now();
         result

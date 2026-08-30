@@ -2,7 +2,7 @@
 Type=Application
 Name=Mousetrap
 Comment=Click anywhere with your keyboard
-Exec=mousetrap daemon
+Exec=mousetrap settings
 Icon=mousetrap
 Terminal=false
 Categories=Utility;Accessibility;
