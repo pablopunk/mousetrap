@@ -1,0 +1,15 @@
+import Foundation
+
+extension Foundation.Bundle {
+    static let module: Bundle = {
+        let bundleName = "KeyboardShortcuts_KeyboardShortcuts.bundle"
+        let mainPath = Bundle.main.bundleURL.appendingPathComponent(bundleName).path
+        let resourcePath = Bundle.main.resourceURL?.appendingPathComponent(bundleName).path
+        let contentsResourcesPath = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/\(bundleName)").path
+        let buildPath = "__BUILD_PATH__"
+        for candidate in [mainPath, resourcePath, contentsResourcesPath, buildPath].compactMap({ $0 }) {
+            if let bundle = Bundle(path: candidate) { return bundle }
+        }
+        Swift.fatalError("could not load resource bundle: from \(mainPath) or \(resourcePath ?? "-") or \(contentsResourcesPath) or \(buildPath)")
+    }()
+}
