@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Mousetrap
+Comment=Click anywhere with your keyboard
+Exec=mousetrap settings
+Icon=mousetrap
+Terminal=false
+Categories=Utility;Accessibility;

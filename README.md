@@ -53,6 +53,13 @@ make build
 make run
 ```
 
+## Linux
+
+A native Linux implementation for Wayland compositors (Hyprland, sway, …)
+lives in [`packages/linux`](packages/linux/README.md): a tray-resident daemon
+with a layer-shell grid, evdev keyboard capture, and uinput clicks — no
+compositor keybindings required. See the [Linux README](packages/linux/README.md).
+
 ## Releases
 
 One-time setup: store notarization credentials in your keychain:
@@ -73,7 +80,6 @@ make release VERSION=0.1.0
 ```
 
 ## Acknowledgements
-
 Other apps I've used that haven't worked for me, but have definitely pushed me to create this app:
 
 - [Mouseless](https://mouseless.click/). Probably my favorite one, I was subscribed for a few months. Issues: not free, not open source. I'm happy to pay but it just adds friction for new setups. Also the config was quite complex. I did achieve a good enough workflow with it but I've never liked it as much as I like Mousetrap now.
