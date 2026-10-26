@@ -10,7 +10,7 @@ let package = Package(
         .executable(name: "Mousetrap", targets: ["Mousetrap"])
     ],
     dependencies: [
-        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.0.0")
+        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "3.1.0")
     ],
     targets: [
         .executableTarget(
